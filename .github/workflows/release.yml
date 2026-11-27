@@ -1,13 +1,15 @@
 name: Release
 
-# Push a version tag (for example `git tag v0.2.0 && git push origin v0.2.0`)
-# to build installers for Windows, macOS and Linux and publish them as a
+# Push a version tag (for example `git tag v0.2.0 && git push origin v0.2.0`),
+# or run this workflow from the Actions tab (it tags the version in
+# tauri.conf.json on the chosen branch), to build installers for Windows, macOS and Linux and publish them as a
 # GitHub Release. The app's built-in updater reads latest.json from the
 # newest release, so published releases reach existing installs.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,26 +24,36 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       release_id: ${{ steps.create.outputs.id }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check the tag matches the app version
+      - name: Work out the version
+        id: version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           conf=$(jq -r .version src-tauri/tauri.conf.json)
           pkg=$(jq -r .version package.json)
           cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"; else tag="v$conf"; fi
           echo "tag=$tag tauri.conf=$conf package.json=$pkg Cargo.toml=$cargo"
-          if [ "$tag" != "$conf" ] || [ "$tag" != "$pkg" ] || [ "$tag" != "$cargo" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the app version. Run 'pnpm version:set $tag' and commit first."
+          v="${tag#v}"
+          if [ "$v" != "$conf" ] || [ "$v" != "$pkg" ] || [ "$v" != "$cargo" ]; then
+            echo "::error::$tag does not match the app version. Run 'pnpm version:set $v' and commit first."
             exit 1
           fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Create the draft
         id: create
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "Casylum ${GITHUB_REF_NAME}" --verify-tag
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id" | head -n1)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A release named $TAG already exists. Bump the version with 'pnpm version:set' first."
+            exit 1
+          fi
+          # On a manual run the tag doesn't exist yet; it is created on this commit when the release is published.
+          gh release create "$TAG" --draft --generate-notes --title "Casylum $TAG" --target "$GITHUB_SHA"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
@@ -133,4 +145,5 @@ jobs:
       - name: Publish the draft
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

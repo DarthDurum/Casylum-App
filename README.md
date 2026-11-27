@@ -56,7 +56,7 @@ Tests: `cargo test --manifest-path src-tauri/Cargo.toml` covers path sandboxing,
 ## Release
 
 1. Set the version everywhere and commit: `pnpm version:set 0.2.0`
-2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`
+2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`, or run the Release workflow from the Actions tab (it tags the commit for you)
 
 The [Release workflow](.github/workflows/release.yml) builds installers for Windows, macOS and Linux, attaches them to a GitHub Release and publishes it. Installed apps then see the update.
 
