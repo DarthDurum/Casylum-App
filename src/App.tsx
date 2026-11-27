@@ -11,6 +11,7 @@ import { SettingsModal } from "./components/Settings";
 import { SkillsModal } from "./components/Skills";
 import { Palette } from "./components/Palette";
 import { Onboarding } from "./components/Onboarding";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -96,6 +97,7 @@ export default function App() {
       {modal === "settings" && <SettingsModal />}
       {modal === "skills" && <SkillsModal />}
       {modal === "palette" && <Palette />}
+      <UpdateBanner />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
