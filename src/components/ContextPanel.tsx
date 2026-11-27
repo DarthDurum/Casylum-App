@@ -64,7 +64,7 @@ export function ContextPanel() {
             <TerminalView key={project} cwd={project} visible={panel === "terminal"} />
           </div>
         )}
-        {!project && panel !== "plan" && <div className="panel-empty">Open a project first.</div>}
+        {!project && panel !== "plan" && <div className="panel-empty">Open a folder to see files and use the terminal.</div>}
       </div>
     </aside>
   );

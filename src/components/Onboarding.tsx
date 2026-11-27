@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { useStore } from "../store";
 
-/** First run: connect one provider, then pick a folder. */
+/** First run: connect one provider, then optionally pick a folder. */
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const providers = useStore((s) => s.providers);
   const refresh = useStore((s) => s.refreshProviders);
@@ -26,8 +26,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         if (!key.trim()) return setErr("Paste a key to continue.");
         await api.setApiKey(pid, key.trim());
       }
-      await update({ provider: pid, model: p?.models[0] ?? "" });
       await refresh();
+      const list = await useStore.getState().loadModels(pid, true);
+      await update({ provider: pid, model: list?.models[0]?.id ?? p?.models[0] ?? "" });
       setStep(2);
     } catch (e) {
       setErr(String(e));
@@ -87,12 +88,17 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         {step === 2 && (
           <>
             <h3>Open a project</h3>
-            <p className="muted">Pick the folder you want to work in. You can add more later.</p>
+            <p className="muted">Pick a folder so Casylum can read and edit your code, or skip and just chat. You can open a folder any time.</p>
             <div className="onboard-row">
               <button className="btn ghost" onClick={() => setStep(1)}>
                 Back
               </button>
               <div className="spacer" />
+              {!project && (
+                <button className="btn" onClick={onDone}>
+                  Skip, just chat
+                </button>
+              )}
               {project && (
                 <button className="btn" onClick={onDone}>
                   Keep {project.split(/[\\/]/).pop()}

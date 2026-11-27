@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, Command, FolderOpen, Moon, Plus, Settings2, Sparkles, Sun, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Command, FolderOpen, MessageSquare, Moon, Plus, Settings2, Sparkles, Sun, Trash2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { basename } from "../lib/api";
 import { useStore } from "../store";
@@ -37,7 +37,7 @@ export function Rail() {
       <div className="project-switch">
         <button className="project-btn" onClick={() => setPicker((p) => !p)}>
           <FolderOpen size={14} />
-          <span className="project-name">{project ? basename(project) : "Open a project"}</span>
+          <span className="project-name">{project ? basename(project) : "No folder"}</span>
           <ChevronDown size={13} />
         </button>
         {picker && (
@@ -62,11 +62,21 @@ export function Rail() {
             <button className="menu-item subtle" onClick={pickFolder}>
               <FolderOpen size={14} /> Open folder…
             </button>
+            <button
+              className="menu-item subtle"
+              onClick={() => {
+                void st().leaveProject();
+                setPicker(false);
+              }}
+            >
+              <MessageSquare size={14} /> Chats without a folder
+              {!project && <Check size={14} />}
+            </button>
           </div>
         )}
       </div>
 
-      <button className="new-chat" onClick={() => st().newChat()} disabled={!project}>
+      <button className="new-chat" onClick={() => st().newChat()}>
         <Plus size={16} />
         New chat
         <kbd>Ctrl N</kbd>

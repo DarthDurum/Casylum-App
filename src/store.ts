@@ -9,6 +9,7 @@ import {
   type Settings,
   type Usage,
 } from "./lib/api";
+import type { ModelList } from "./lib/models";
 
 export interface Approval {
   requestId: string;
@@ -55,6 +56,10 @@ interface Store {
   ready: boolean;
   settings: Settings | null;
   providers: Provider[];
+  /** Live model lists by provider id. */
+  models: Record<string, ModelList>;
+  modelsLoading: Record<string, boolean>;
+  /** null means chats without a folder. */
   project: string | null;
   sessions: SessionSummary[];
   sessionId: string | null;
@@ -67,6 +72,8 @@ interface Store {
 
   init(): Promise<void>;
   refreshProviders(): Promise<void>;
+  loadModels(provider: string, refresh?: boolean): Promise<ModelList | null>;
+  leaveProject(): Promise<void>;
   updateSettings(patch: Partial<Settings>): Promise<void>;
   openProject(path: string): Promise<void>;
   closeProject(path: string): Promise<void>;
@@ -88,6 +95,14 @@ interface Store {
 
 let toastTimer: number | undefined;
 
+/** Fetch model lists for every provider the user can use (cached in Rust). */
+function loadUsableModels() {
+  const st = useStore.getState();
+  for (const p of st.providers) {
+    if ((p.has_key || !p.needs_key) && !st.models[p.id]) void st.loadModels(p.id);
+  }
+}
+
 export const useStore = create<Store>((set, get) => {
   const patchChat = (sid: string, fn: (c: ChatState) => Partial<ChatState>) =>
     set((s) => {
@@ -104,6 +119,8 @@ export const useStore = create<Store>((set, get) => {
     ready: false,
     settings: null,
     providers: [],
+    models: {},
+    modelsLoading: {},
     project: null,
     sessions: [],
     sessionId: null,
@@ -120,6 +137,7 @@ export const useStore = create<Store>((set, get) => {
       const project = settings.recent_projects[0] ?? null;
       set({ settings, providers, project, ready: true });
       for (const sid of running) patchChat(sid, () => ({ running: true }));
+      loadUsableModels();
       await get().refreshSessions();
       const first = get().sessions[0];
       if (first) await get().selectSession(first.id);
@@ -127,6 +145,28 @@ export const useStore = create<Store>((set, get) => {
 
     async refreshProviders() {
       set({ providers: await api.listProviders() });
+      loadUsableModels();
+    },
+
+    async loadModels(provider, refresh = false) {
+      if (get().modelsLoading[provider]) return get().models[provider] ?? null;
+      set((s) => ({ modelsLoading: { ...s.modelsLoading, [provider]: true } }));
+      try {
+        const list = await api.listModels(provider, refresh);
+        set((s) => ({ models: { ...s.models, [provider]: list } }));
+        return list;
+      } catch {
+        return null;
+      } finally {
+        set((s) => ({ modelsLoading: { ...s.modelsLoading, [provider]: false } }));
+      }
+    },
+
+    async leaveProject() {
+      set({ project: null, sessionId: null });
+      await get().refreshSessions();
+      const first = get().sessions[0];
+      if (first) await get().selectSession(first.id);
     },
 
     async updateSettings(patch) {
@@ -154,14 +194,14 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async refreshSessions() {
-      const project = get().project;
-      set({ sessions: project ? await api.listSessions(project) : [] });
+      // Chats without a folder are stored with an empty project.
+      set({ sessions: await api.listSessions(get().project ?? "") });
     },
 
     async newChat() {
       const { project, settings } = get();
-      if (!project || !settings) return null;
-      const s = await api.createSession(project, settings.provider, settings.model);
+      if (!settings) return null;
+      const s = await api.createSession(project ?? "", settings.provider, settings.model);
       patchChat(s.id, () => emptyChat());
       set({ sessionId: s.id });
       await get().refreshSessions();
