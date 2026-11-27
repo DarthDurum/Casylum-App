@@ -41,19 +41,25 @@ jobs:
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - name: Create the draft
+      - name: Create the draft (or reuse an existing release)
         id: create
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::A release named $TAG already exists. Bump the version with 'pnpm version:set' first."
-            exit 1
+          # A release for this tag may already exist (for example one made by hand
+          # on GitHub). Upload into it instead of failing.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)
+          if [ -n "$id" ]; then
+            echo "Reusing existing release $TAG ($id)."
+          else
+            # On a manual run the tag may not exist yet; it is created on this commit when the release is published.
+            id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" -f name="Casylum $TAG" \
+              -F draft=true -F generate_release_notes=true --jq .id)
+            echo "Created draft release $TAG ($id)."
           fi
-          # On a manual run the tag doesn't exist yet; it is created on this commit when the release is published.
-          gh release create "$TAG" --draft --generate-notes --title "Casylum $TAG" --target "$GITHUB_SHA"
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)
+          [ -n "$id" ] || { echo "::error::Could not find or create the release."; exit 1; }
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
@@ -135,6 +141,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.draft.outputs.release_id }}
+          tagName: ${{ needs.draft.outputs.tag }}
           args: ${{ matrix.args }}
 
   publish:
@@ -145,5 +152,8 @@ jobs:
       - name: Publish the draft
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.draft.outputs.tag }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          ID: ${{ needs.draft.outputs.release_id }}
+        run: |
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false >/dev/null
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -f make_latest=true >/dev/null
+          echo "Published."
