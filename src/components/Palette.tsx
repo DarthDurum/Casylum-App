@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useStore } from "../store";
+import { modelLabel } from "../lib/models";
 
 interface Cmd {
   id: string;
@@ -13,6 +14,7 @@ interface Cmd {
 export function Palette() {
   const st = useStore.getState;
   const providers = useStore((s) => s.providers);
+  const models = useStore((s) => s.models);
   const sessions = useStore((s) => s.sessions);
   const [q, setQ] = useState("");
   const [i, setI] = useState(0);
@@ -45,10 +47,13 @@ export function Palette() {
     ];
     for (const p of providers)
       if (p.has_key || !p.needs_key)
-        for (const m of p.models) base.push({ id: `m-${p.id}-${m}`, label: `Model: ${m}`, hint: p.name, run: () => void st().updateSettings({ provider: p.id, model: m }) });
+        for (const m of models[p.id]?.models ?? p.models.map((id) => ({ id }))) {
+          const all = models[p.id]?.models;
+          base.push({ id: `m-${p.id}-${m.id}`, label: `Model: ${modelLabel(m.id, all)}`, hint: `${p.name} · ${m.id}`, run: () => void st().updateSettings({ provider: p.id, model: m.id }) });
+        }
     for (const s of sessions.slice(0, 30)) base.push({ id: `s-${s.id}`, label: `Chat: ${s.title}`, run: () => void st().selectSession(s.id) });
     return base;
-  }, [providers, sessions]);
+  }, [providers, sessions, models]);
 
   const filtered = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);

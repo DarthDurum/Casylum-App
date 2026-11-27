@@ -28,6 +28,8 @@ pub struct Settings {
     pub recent_projects: Vec<String>,
     /// Skills switched off, as "<scope>:<name>".
     pub disabled_skills: Vec<String>,
+    /// Download updates in the background and install them on quit.
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -41,6 +43,7 @@ impl Default for Settings {
             custom_base_url: String::new(),
             recent_projects: vec![],
             disabled_skills: vec![],
+            auto_update: true,
         }
     }
 }

@@ -60,6 +60,7 @@ let settings: Settings = {
   custom_base_url: "",
   recent_projects: ["/Users/you/code/shopfront"],
   disabled_skills: [],
+  auto_update: true,
 };
 
 export function installMock() {
@@ -81,6 +82,17 @@ export function installMock() {
             { id: "openrouter", name: "OpenRouter", needs_key: true, models: [], key_url: "", has_key: false, key_hint: null },
             { id: "ollama", name: "Ollama (local)", needs_key: false, models: ["qwen3-coder"], key_url: "", has_key: false, key_hint: null },
           ];
+        case "list_models": {
+          const lists: Record<string, Array<{ id: string; name?: string }>> = {
+            anthropic: [
+              { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
+              { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
+              { id: "claude-haiku-5-5", name: "Claude Haiku 5.5" },
+            ],
+            gemini: [{ id: "gemini-4-argon", name: "Gemini 4 Argon" }, { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" }],
+          };
+          return { provider: args.provider, models: lists[args.provider] ?? [], source: "live", fetched_at: Date.now(), error: null };
+        }
         case "agent_running":
           return [];
         case "list_sessions":

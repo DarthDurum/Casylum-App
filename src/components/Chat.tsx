@@ -22,7 +22,7 @@ export function Chat() {
     <main className="chat">
       <header className="chat-head">
         <div className="chat-title">
-          <span className="crumb">{project ? basename(project) : "No project"}</span>
+          <span className="crumb">{project ? basename(project) : "No folder"}</span>
           <span className="crumb-sep">/</span>
           <span className="title-text">{sessionId ? title : "New chat"}</span>
         </div>
@@ -37,31 +37,33 @@ export function Chat() {
           </button>
         </div>
       </header>
-      {project ? <Conversation /> : <NoProject />}
-      {project && <Composer />}
+      <Conversation />
+      <Composer />
     </main>
   );
 }
 
-function NoProject() {
+function OpenFolderButton() {
   const openProject = useStore((s) => s.openProject);
   return (
-    <div className="empty-state">
-      <div className="empty-mark" />
-      <h2>Open a project to start</h2>
-      <p>Casylum works inside a folder on your computer. Pick one and ask for anything.</p>
-      <button
-        className="btn primary"
-        onClick={async () => {
-          const dir = await open({ directory: true, multiple: false });
-          if (typeof dir === "string") await openProject(dir);
-        }}
-      >
-        <FolderOpen size={15} /> Open folder
-      </button>
-    </div>
+    <button
+      className="btn"
+      onClick={async () => {
+        const dir = await open({ directory: true, multiple: false });
+        if (typeof dir === "string") await openProject(dir);
+      }}
+    >
+      <FolderOpen size={15} /> Open a folder
+    </button>
   );
 }
+
+const CHAT_SUGGESTIONS = [
+  "Explain how async/await works in Rust",
+  "Write a regex that matches email addresses",
+  "Help me plan the architecture for a new app",
+  "Review this snippet for bugs",
+];
 
 const SUGGESTIONS = [
   "Give me a tour of this codebase",
@@ -72,6 +74,7 @@ const SUGGESTIONS = [
 
 function Conversation() {
   const chat = useChat();
+  const project = useStore((s) => s.project);
   const send = useStore((s) => s.send);
   const revert = useStore((s) => s.revert);
   const scroller = useRef<HTMLDivElement>(null);
@@ -102,9 +105,14 @@ function Conversation() {
       <div className="empty-state">
         <div className="empty-mark" />
         <h2>What are we building?</h2>
-        <p>Describe a task. Casylum reads your code, plans, makes edits you can review, and runs commands.</p>
+        {project ? (
+          <p>Describe a task. Casylum reads your code, plans, makes edits you can review, and runs commands.</p>
+        ) : (
+          <p>Ask anything. To let Casylum read and edit your code, open a folder.</p>
+        )}
+        {!project && <OpenFolderButton />}
         <div className="suggestions">
-          {SUGGESTIONS.map((s) => (
+          {(project ? SUGGESTIONS : CHAT_SUGGESTIONS).map((s) => (
             <button key={s} className="suggestion" onClick={() => send(s)}>
               {s}
             </button>

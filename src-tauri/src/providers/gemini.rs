@@ -59,12 +59,14 @@ pub async fn stream(
         .iter()
         .map(|t| json!({"name": t.name, "description": t.description, "parameters": t.schema}))
         .collect();
-    let body = json!({
+    let mut body = json!({
         "systemInstruction": {"parts": [{"text": req.system}]},
         "contents": to_wire(req.messages),
-        "tools": [{"functionDeclarations": decls}],
         "generationConfig": {"maxOutputTokens": 32000, "thinkingConfig": {"includeThoughts": true}},
     });
+    if !decls.is_empty() {
+        body["tools"] = json!([{"functionDeclarations": decls}]);
+    }
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
         req.model

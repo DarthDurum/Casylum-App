@@ -207,6 +207,21 @@ fn system_prompt(root: &Path, disabled: &[String]) -> String {
     s
 }
 
+const NO_FOLDER: &str = "No project folder is open in this chat, so file and shell tools are unavailable. Ask the user to open a folder.";
+
+fn chat_prompt() -> String {
+    let os = std::env::consts::OS;
+    let date = chrono::Utc::now().format("%Y-%m-%d");
+    format!(
+        "You are Casylum, an expert software engineer and helpful assistant.\n\
+         OS: {os}\nDate: {date}\n\n\
+         No project folder is open in this chat, so you cannot read files, edit code or run commands. \
+         Answer questions, explain, and write code in your replies. If the user asks for something that needs their files, \
+         tell them to open a folder with the folder button at the top of the sidebar (or Ctrl+O) and start a chat there.\n\
+         Be concise.\n"
+    )
+}
+
 pub struct SendArgs {
     pub session_id: String,
     pub text: String,
@@ -250,9 +265,12 @@ async fn drive(
 ) -> Result<usize> {
     let sid = &args.session_id;
     let mut session = load_session(sid)?;
-    let root = PathBuf::from(&session.project);
-    if !root.is_dir() {
-        return Err(anyhow!("Project folder not found: {}", root.display()));
+    // A chat without a folder is plain conversation: no file or shell tools.
+    let root = (!session.project.is_empty()).then(|| PathBuf::from(&session.project));
+    if let Some(root) = &root {
+        if !root.is_dir() {
+            return Err(anyhow!("Project folder not found: {}", root.display()));
+        }
     }
     session.provider = args.provider.clone();
     session.model = args.model.clone();
@@ -268,7 +286,7 @@ async fn drive(
     save_session(&session)?;
     emit(app, AgentEvent::Message { session_id: sid.clone(), message: session.messages.last().unwrap().clone() });
 
-    let specs = tools::specs();
+    let specs = if root.is_some() { tools::specs() } else { vec![] };
     let mut checkpoint: Checkpoint = HashMap::new();
     let mut always: HashSet<String> = HashSet::new();
 
@@ -295,7 +313,10 @@ async fn drive(
             "custom" => Some(settings.custom_base_url.clone()),
             _ => None,
         };
-        let system = system_prompt(&root, &settings.disabled_skills);
+        let system = match &root {
+            Some(root) => system_prompt(root, &settings.disabled_skills),
+            None => chat_prompt(),
+        };
         let req = TurnRequest {
             provider: &args.provider,
             model: &args.model,
@@ -394,8 +415,12 @@ async fn drive(
                     Decision::Allow => {}
                 }
             }
+            let Some(root) = &root else {
+                results.push(Block::ToolResult { tool_use_id: id, content: NO_FOLDER.into(), is_error: true, meta: None });
+                continue;
+            };
             emit(app, AgentEvent::ToolRunning { session_id: sid.clone(), tool_use_id: id.clone() });
-            let mut ctx = ToolCtx { root: &root, disabled_skills: &settings::load().disabled_skills, checkpoint: &mut checkpoint };
+            let mut ctx = ToolCtx { root, disabled_skills: &settings::load().disabled_skills, checkpoint: &mut checkpoint };
             let out = tools::run(&name, &input, &mut ctx).await;
             let block = Block::ToolResult { tool_use_id: id, content: out.content, is_error: out.is_error, meta: out.meta };
             emit(app, AgentEvent::ToolResult { session_id: sid.clone(), block: block.clone() });

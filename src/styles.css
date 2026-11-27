@@ -547,6 +547,41 @@ kbd {
   font-size: 12.5px;
   padding: 10px;
 }
+.menu.model-menu {
+  max-height: 460px;
+  padding-top: 0;
+}
+.menu-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding: 6px 0 4px;
+}
+.menu-search input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 12.5px;
+  outline: none;
+}
+.menu-search input:focus {
+  border-color: var(--accent);
+}
+.menu-label .spacer {
+  flex: 1;
+}
+.menu-hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  padding: 0 9px 4px;
+}
+.icon-btn.xs {
+  width: 20px;
+  height: 20px;
+}
 .menu-custom {
   padding: 6px 4px;
   border-top: 1px solid var(--line);

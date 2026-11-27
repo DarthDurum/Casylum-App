@@ -90,8 +90,9 @@ function ProviderCard({ p }: { p: Provider }) {
       if (isUrlProvider) await update({ [urlField]: url.trim() } as any);
       setKey("");
       await refresh();
+      const list = await useStore.getState().loadModels(p.id, true);
       if (!settings.provider || !useStore.getState().providers.find((x) => x.id === settings.provider)?.has_key) {
-        const model = p.models[0];
+        const model = list?.models[0]?.id ?? p.models[0];
         if (model) await update({ provider: p.id, model });
       }
       notify(`${p.name} saved`);
@@ -149,6 +150,7 @@ function ProviderCard({ p }: { p: Provider }) {
               onClick={async () => {
                 await api.deleteApiKey(p.id);
                 await refresh();
+                void useStore.getState().loadModels(p.id, true);
               }}
             >
               <Trash2 size={14} />
@@ -162,33 +164,57 @@ function ProviderCard({ p }: { p: Provider }) {
 
 function UpdatesRow() {
   const { current, status, update, error, check, install } = useUpdates();
+  const settings = useStore((s) => s.settings)!;
+  const updateSettings = useStore((s) => s.updateSettings);
+  const auto = settings.auto_update;
   const label =
     status === "checking"
       ? "Checking…"
       : status === "downloading"
         ? "Downloading the update…"
-        : update && status !== "none"
-          ? `Version ${update.version} is available.`
-          : status === "none"
-            ? "You're on the latest version."
-            : status === "error"
-              ? `Couldn't check for updates: ${error}`
-              : "Updates come from GitHub Releases.";
+        : status === "installing"
+          ? "Installing…"
+          : status === "ready" && update
+            ? `Version ${update.version} is downloaded. It installs when you close Casylum.`
+            : update && status !== "none"
+              ? `Version ${update.version} is available.`
+              : status === "none"
+                ? "You're on the latest version."
+                : status === "error"
+                  ? `Couldn't update: ${error}`
+                  : "Updates come from GitHub Releases.";
   return (
-    <div className="form-field">
-      <span>Updates{current && <span className="muted"> · version {current}</span>}</span>
-      <div className="update-row">
-        <span className="muted small">{label}</span>
-        {update && status !== "none" ? (
-          <button className="btn primary sm" onClick={() => void install()} disabled={status === "downloading"}>
-            Update and restart
-          </button>
-        ) : (
-          <button className="btn sm" onClick={() => void check(true)} disabled={status === "checking"}>
-            Check for updates
-          </button>
-        )}
+    <>
+      <label>
+        <span>Automatic updates</span>
+        <div className="seg">
+          {(
+            [
+              [true, "On"],
+              [false, "Off"],
+            ] as const
+          ).map(([v, l]) => (
+            <button key={l} className={auto === v ? "on" : ""} onClick={() => updateSettings({ auto_update: v })}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </label>
+      <div className="form-field">
+        <span>Updates{current && <span className="muted"> · version {current}</span>}</span>
+        <div className="update-row">
+          <span className="muted small">{label}</span>
+          {update && status !== "none" && status !== "checking" ? (
+            <button className="btn primary sm" onClick={() => void install()} disabled={status === "downloading" || status === "installing"}>
+              {status === "ready" ? "Restart now" : "Update and restart"}
+            </button>
+          ) : (
+            <button className="btn sm" onClick={() => void check({ manual: true, auto })} disabled={status === "checking"}>
+              Check for updates
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
