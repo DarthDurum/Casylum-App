@@ -183,7 +183,7 @@ fn system_prompt(root: &Path, disabled: &[String]) -> String {
          Project root: {root}\nOS: {os}\nDate: {date}\n\n\
          How to work:\n\
          - Explore before changing: use list_dir, search and read_file to understand the code.\n\
-         - For multi-step tasks, call update_plan first and keep it current.\n\
+         - For multi-step tasks, call update_plan first and keep it current. Give each step a short title and a one-sentence description.\n\
          - Make focused changes with edit_file; use write_file for new files.\n\
          - Verify your work with run_command (build, tests, linters) when the project has them.\n\
          - Paths are relative to the project root. Never touch files outside it.\n\

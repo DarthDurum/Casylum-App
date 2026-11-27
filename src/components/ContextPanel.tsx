@@ -94,7 +94,10 @@ function PlanTab() {
       {plan.map((p, i) => (
         <div key={i} className={`plan-item ${p.status}`}>
           {p.status === "done" ? <CircleCheck size={15} /> : p.status === "in_progress" ? <CircleDot size={15} /> : <Circle size={15} />}
-          <span>{p.text}</span>
+          <div className="plan-text">
+            <span className="plan-title">{p.text}</span>
+            {typeof p.description === "string" && p.description.trim() && <span className="plan-desc">{p.description}</span>}
+          </div>
         </div>
       ))}
     </div>

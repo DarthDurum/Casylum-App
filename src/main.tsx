@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import "@fontsource-variable/manrope";
-import "@fontsource-variable/jetbrains-mono";
+import "@fontsource-variable/instrument-sans/standard.css";
+import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import App from "./App";
 

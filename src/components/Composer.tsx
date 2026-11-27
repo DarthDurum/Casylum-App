@@ -67,14 +67,6 @@ export function Composer() {
         <div className="composer-bar">
           <div className="pill-row">
             <div className="menu-anchor" onClick={(e) => e.stopPropagation()}>
-              <button className="pill" onClick={() => setMenu(menu === "model" ? null : "model")}>
-                <span className="pill-dot" />
-                {settings.model}
-                <ChevronDown size={12} />
-              </button>
-              {menu === "model" && <ModelMenu close={() => setMenu(null)} />}
-            </div>
-            <div className="menu-anchor" onClick={(e) => e.stopPropagation()}>
               <button className={`pill mode-${settings.permission_mode}`} onClick={() => setMenu(menu === "mode" ? null : "mode")}>
                 <ModeIcon size={12} />
                 {mode.label}
@@ -106,7 +98,15 @@ export function Composer() {
               )}
             </div>
           </div>
-          {chat.running ? (
+          <div className="composer-end">
+            <div className="menu-anchor" onClick={(e) => e.stopPropagation()}>
+              <button className="pill" onClick={() => setMenu(menu === "model" ? null : "model")} title="Choose model">
+                {settings.model}
+                <ChevronDown size={12} />
+              </button>
+              {menu === "model" && <ModelMenu close={() => setMenu(null)} />}
+            </div>
+            {chat.running ? (
             <button className="send stop" onClick={() => stop()} title="Stop">
               <Square size={13} fill="currentColor" />
             </button>
@@ -115,9 +115,9 @@ export function Composer() {
               <ArrowUp size={16} />
             </button>
           )}
+          </div>
         </div>
       </div>
-      <div className="composer-hint">Enter to send · Shift+Enter for a new line · Ctrl+K for commands</div>
     </div>
   );
 }
@@ -136,7 +136,7 @@ function ModelMenu({ close }: { close: () => void }) {
   };
 
   return (
-    <div className="menu up wide">
+    <div className="menu up wide end">
       {usable.length === 0 && <div className="menu-note">Add an API key to choose a model.</div>}
       {usable.map((p) => (
         <div key={p.id} className="menu-group">
