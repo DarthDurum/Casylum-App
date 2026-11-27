@@ -94,24 +94,26 @@ jobs:
       # Updates are signed so the app only installs builds made here. When the
       # signing secrets are missing, installers are still built, just without
       # the files the in-app updater needs.
+      # Updates are signed so the app only installs builds made here. The
+      # public key is in tauri.conf.json; the private key is a repo secret.
+      # Without it, installers are still built, just without the files the
+      # in-app updater needs.
       - name: Enable signed updates
         shell: bash
         env:
           PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         run: |
-          if [ -n "$PRIVATE_KEY" ] && [ -n "$PUBKEY" ]; then
+          if [ -n "$PRIVATE_KEY" ]; then
             node -e '
               const fs = require("fs");
               const p = "src-tauri/tauri.conf.json";
               const c = JSON.parse(fs.readFileSync(p, "utf8"));
               c.bundle.createUpdaterArtifacts = true;
-              c.plugins.updater.pubkey = process.env.PUBKEY.trim();
               fs.writeFileSync(p, JSON.stringify(c, null, 2));
             '
             echo "Signed updates enabled."
           else
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY secret or TAURI_UPDATER_PUBKEY variable is not set, so this release won't be offered as an in-app update."
+            echo "::warning::The TAURI_SIGNING_PRIVATE_KEY secret is not set, so this release won't be offered as an in-app update."
           fi
 
       - uses: tauri-apps/tauri-action@v0

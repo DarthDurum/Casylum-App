@@ -60,15 +60,9 @@ Tests: `cargo test --manifest-path src-tauri/Cargo.toml` covers path sandboxing,
 
 The [Release workflow](.github/workflows/release.yml) builds installers for Windows, macOS and Linux, attaches them to a GitHub Release and publishes it. Installed apps then see the update.
 
-In-app updates are signed, so set this up once before the first release:
+In-app updates are signed. The public key is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`); the matching private key and its password are stored as the repo secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (Settings, Secrets and variables, Actions). Keep a private backup of the key: losing it means existing installs can't update. To rotate it, run `pnpm tauri signer generate -w ~/.tauri/casylum.key`, put the new `.pub` contents in `tauri.conf.json` and update both secrets.
 
-1. Make a signing key on your computer: `pnpm tauri signer generate -w ~/.tauri/casylum.key` (pick a password). Keep the key file private and backed up; losing it means existing installs can't update.
-2. In the repo on GitHub, open Settings, Secrets and variables, Actions, and add:
-   - Secret `TAURI_SIGNING_PRIVATE_KEY`: the contents of `~/.tauri/casylum.key`
-   - Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password
-   - Variable (Variables tab) `TAURI_UPDATER_PUBKEY`: the contents of `~/.tauri/casylum.key.pub`
-
-Without these, releases still build installers but aren't offered as in-app updates.
+Without the secrets, releases still build installers but aren't offered as in-app updates.
 
 ## Layout
 

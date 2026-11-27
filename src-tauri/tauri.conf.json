@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVDNTc2ODQ4MzEwQ0M3RjYKUldUMnh3d3hTR2hYWE1idFUrejd6anpBbGk5V0g3Tkc2Q3lnZS9oUDR4VFJzZXVBTlpzc1hzSDMK",
       "endpoints": [
         "https://github.com/DarthDurum/Casylum-App/releases/latest/download/latest.json"
       ],
