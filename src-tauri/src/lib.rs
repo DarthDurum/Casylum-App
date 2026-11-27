@@ -280,6 +280,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // In-app updates come from GitHub Releases (see plugins.updater in tauri.conf.json).
+            #[cfg(desktop)]
+            {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
+            Ok(())
+        })
         .manage(App { agent: Arc::new(AgentState::default()), http, terms: Default::default() })
         .invoke_handler(tauri::generate_handler![
             get_settings,

@@ -1722,7 +1722,8 @@ body.dragging .panel-drag {
   flex-direction: column;
   gap: 18px;
 }
-.form label {
+.form label,
+.form .form-field {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2029,4 +2030,40 @@ body.dragging .panel-drag {
   .rail {
     width: 216px;
   }
+}
+
+.update-banner {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+  padding: 12px 12px 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  z-index: 150;
+  animation: rise 0.2s var(--ease);
+  color: var(--accent);
+}
+.update-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.update-text .small {
+  overflow-wrap: anywhere;
+}
+.update-row {
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }

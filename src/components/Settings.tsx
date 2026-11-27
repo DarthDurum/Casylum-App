@@ -3,6 +3,7 @@ import { Check, ExternalLink, KeyRound, Lock, Trash2 } from "lucide-react";
 import { api, type Provider } from "../lib/api";
 import { useStore } from "../store";
 import { Modal } from "./Modal";
+import { useUpdates } from "../lib/updates";
 
 export function SettingsModal() {
   const setModal = useStore((s) => s.setModal);
@@ -61,6 +62,7 @@ export function SettingsModal() {
                   ))}
                 </div>
               </label>
+              <UpdatesRow />
             </div>
           )}
         </div>
@@ -153,6 +155,39 @@ function ProviderCard({ p }: { p: Provider }) {
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function UpdatesRow() {
+  const { current, status, update, error, check, install } = useUpdates();
+  const label =
+    status === "checking"
+      ? "Checking…"
+      : status === "downloading"
+        ? "Downloading the update…"
+        : update && status !== "none"
+          ? `Version ${update.version} is available.`
+          : status === "none"
+            ? "You're on the latest version."
+            : status === "error"
+              ? `Couldn't check for updates: ${error}`
+              : "Updates come from GitHub Releases.";
+  return (
+    <div className="form-field">
+      <span>Updates{current && <span className="muted"> · version {current}</span>}</span>
+      <div className="update-row">
+        <span className="muted small">{label}</span>
+        {update && status !== "none" ? (
+          <button className="btn primary sm" onClick={() => void install()} disabled={status === "downloading"}>
+            Update and restart
+          </button>
+        ) : (
+          <button className="btn sm" onClick={() => void check(true)} disabled={status === "checking"}>
+            Check for updates
+          </button>
+        )}
       </div>
     </div>
   );

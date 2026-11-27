@@ -21,6 +21,24 @@ A calm, fast desktop AI coding agent. Bring your own API keys, open a folder, an
 - **Project instructions:** a `CASYLUM.md`, `AGENTS.md` or `CLAUDE.md` at the project root is added to the agent's instructions.
 - **Chats persist** per project in the app's config folder.
 
+## Install
+
+Download the installer for your system from the [latest release](https://github.com/DarthDurum/Casylum-App/releases/latest): `.exe` or `.msi` for Windows, `.dmg` for macOS (Apple Silicon `aarch64` or Intel `x64`), `.AppImage`, `.deb` or `.rpm` for Linux.
+
+Or let a one-line installer fetch the latest release from GitHub:
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/DarthDurum/Casylum-App/main/scripts/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/DarthDurum/Casylum-App/main/scripts/install.ps1 | iex
+```
+
+Casylum checks GitHub for new versions when it starts and offers to update itself (also under Settings, General, Check for updates). macOS builds aren't notarized yet: if macOS says the app can't be opened, right-click it and choose Open once (the install script does this for you).
+
 ## Develop
 
 Prerequisites: Node 20+, pnpm, Rust (stable), and the [Tauri system dependencies](https://tauri.app/start/prerequisites/) for your OS.
@@ -34,6 +52,17 @@ pnpm tauri build      # make an installer for your OS
 UI-only work in a normal browser: `pnpm dev` and open http://localhost:1420. Outside Tauri the app uses a mock core (`src/dev/mock.ts`) with a sample conversation. Add `?theme=light` or `?onboard=1` to the URL to preview those states.
 
 Tests: `cargo test --manifest-path src-tauri/Cargo.toml` covers path sandboxing, edits and undo, commands, skill parsing, and streaming for the Anthropic and OpenAI-compatible adapters.
+
+## Release
+
+1. Set the version everywhere and commit: `pnpm version:set 0.2.0`
+2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`
+
+The [Release workflow](.github/workflows/release.yml) builds installers for Windows, macOS and Linux, attaches them to a GitHub Release and publishes it. Installed apps then see the update.
+
+In-app updates are signed. The public key is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`); the matching private key and its password are stored as the repo secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (Settings, Secrets and variables, Actions). Keep a private backup of the key: losing it means existing installs can't update. To rotate it, run `pnpm tauri signer generate -w ~/.tauri/casylum.key`, put the new `.pub` contents in `tauri.conf.json` and update both secrets.
+
+Without the secrets, releases still build installers but aren't offered as in-app updates.
 
 ## Layout
 
