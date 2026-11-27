@@ -117,7 +117,17 @@ export function Composer() {
           )}
         </div>
       </div>
-      <div className="composer-hint">Enter to send · Shift+Enter for a new line · Ctrl+K for commands</div>
+      <div className="composer-hint">
+        <span>
+          <kbd>Enter</kbd> send
+        </span>
+        <span>
+          <kbd>Shift Enter</kbd> new line
+        </span>
+        <span>
+          <kbd>Ctrl K</kbd> commands
+        </span>
+      </div>
     </div>
   );
 }

@@ -19,7 +19,7 @@ export function TerminalView({ cwd, visible }: { cwd: string; visible: boolean }
   useEffect(() => {
     if (!host.current) return;
     const term = new XTerm({
-      fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
+      fontFamily: "'Geist Mono Variable', ui-monospace, monospace",
       fontSize: 12.5,
       lineHeight: 1.25,
       cursorBlink: true,
@@ -28,7 +28,7 @@ export function TerminalView({ cwd, visible }: { cwd: string; visible: boolean }
         background: cssVar("--surface"),
         foreground: cssVar("--text"),
         cursor: cssVar("--accent"),
-        selectionBackground: "#f0a86844",
+        selectionBackground: cssVar("--accent-soft-strong"),
       },
     });
     const fit = new FitAddon();

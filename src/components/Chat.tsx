@@ -29,7 +29,7 @@ export function Chat() {
         <div className="head-right">
           {chat.usage.input_tokens + chat.usage.output_tokens > 0 && (
             <span className="usage" title="Tokens used in this chat (input / output)">
-              {formatTokens(chat.usage.input_tokens)} in · {formatTokens(chat.usage.output_tokens)} out
+              {formatTokens(chat.usage.input_tokens)} in / {formatTokens(chat.usage.output_tokens)} out
             </span>
           )}
           <button className={`icon-btn ${panelOpen ? "on" : ""}`} onClick={togglePanel} title="Toggle side panel (Ctrl+\)">
