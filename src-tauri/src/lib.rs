@@ -63,12 +63,28 @@ async fn list_providers() -> Vec<ProviderStatus> {
 
 #[tauri::command]
 async fn set_api_key(provider: String, key: String) -> Res<()> {
+    providers::models::invalidate(&provider);
     tauri::async_runtime::spawn_blocking(move || keys::set(&provider, &key)).await.map_err(e)?.map_err(e)
 }
 
 #[tauri::command]
 async fn delete_api_key(provider: String) -> Res<()> {
+    providers::models::invalidate(&provider);
     tauri::async_runtime::spawn_blocking(move || keys::delete(&provider)).await.map_err(e)?.map_err(e)
+}
+
+/// Models the user's key can use, fetched from the provider (cached).
+#[tauri::command]
+async fn list_models(st: State<'_, App>, provider: String, refresh: Option<bool>) -> Res<providers::models::ModelList> {
+    let p = provider.clone();
+    let key = tauri::async_runtime::spawn_blocking(move || keys::get(&p)).await.map_err(e)?;
+    let s = settings::load();
+    let base = match provider.as_str() {
+        "ollama" => Some(s.ollama_base_url),
+        "custom" => Some(s.custom_base_url),
+        _ => None,
+    };
+    Ok(providers::models::list(&st.http, &provider, key, base, refresh.unwrap_or(false)).await)
 }
 
 // ---------- projects & sessions ----------
@@ -296,6 +312,7 @@ pub fn run() {
             list_providers,
             set_api_key,
             delete_api_key,
+            list_models,
             add_recent_project,
             remove_recent_project,
             list_sessions,

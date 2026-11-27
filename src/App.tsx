@@ -19,7 +19,6 @@ export default function App() {
   const panelOpen = useStore((s) => s.panelOpen);
   const toast = useStore((s) => s.toast);
   const providers = useStore((s) => s.providers);
-  const project = useStore((s) => s.project);
   const settings = useStore((s) => s.settings);
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem("onboarded") === "1");
 
@@ -78,7 +77,8 @@ export default function App() {
 
   // Local providers (Ollama, custom endpoints) count as connected without a key.
   const hasProvider = providers.some((p) => p.has_key) || ["ollama", "custom"].includes(settings?.provider ?? "");
-  if (!onboarded && (!hasProvider || !project)) {
+  // A folder is optional: chats without one just can't touch files.
+  if (!onboarded && !hasProvider) {
     return (
       <Onboarding
         onDone={() => {

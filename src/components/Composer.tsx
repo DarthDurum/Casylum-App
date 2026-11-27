@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, ChevronDown, Shield, ShieldCheck, ShieldOff, Square } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, RefreshCw, Shield, ShieldCheck, ShieldOff, Square } from "lucide-react";
 import type { PermissionMode } from "../lib/api";
+import { modelLabel, type ModelInfo } from "../lib/models";
 import { useChat, useStore } from "../store";
 
 const MODES: Record<PermissionMode, { label: string; hint: string; icon: any }> = {
@@ -16,6 +17,7 @@ export function Composer() {
   const settings = useStore((s) => s.settings);
   const update = useStore((s) => s.updateSettings);
   const sessionId = useStore((s) => s.sessionId);
+  const providerModels = useStore((s) => (s.settings ? s.models[s.settings.provider]?.models : undefined));
   const [text, setText] = useState("");
   const [menu, setMenu] = useState<null | "model" | "mode">(null);
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -100,8 +102,8 @@ export function Composer() {
           </div>
           <div className="composer-end">
             <div className="menu-anchor" onClick={(e) => e.stopPropagation()}>
-              <button className="pill" onClick={() => setMenu(menu === "model" ? null : "model")} title="Choose model">
-                {settings.model}
+              <button className="pill" onClick={() => setMenu(menu === "model" ? null : "model")} title={`Choose model (${settings.model})`}>
+                {modelLabel(settings.model, providerModels)}
                 <ChevronDown size={12} />
               </button>
               {menu === "model" && <ModelMenu close={() => setMenu(null)} />}
@@ -124,11 +126,20 @@ export function Composer() {
 
 function ModelMenu({ close }: { close: () => void }) {
   const providers = useStore((s) => s.providers);
+  const models = useStore((s) => s.models);
+  const loading = useStore((s) => s.modelsLoading);
+  const loadModels = useStore((s) => s.loadModels);
   const settings = useStore((s) => s.settings)!;
   const update = useStore((s) => s.updateSettings);
   const setModal = useStore((s) => s.setModal);
-  const [custom, setCustom] = useState("");
+  const [query, setQuery] = useState("");
   const usable = providers.filter((p) => p.has_key || !p.needs_key);
+  const q = query.trim().toLowerCase();
+
+  useEffect(() => {
+    for (const p of usable) if (!models[p.id] && !loading[p.id]) void loadModels(p.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pick = (provider: string, model: string) => {
     void update({ provider, model });
@@ -136,28 +147,55 @@ function ModelMenu({ close }: { close: () => void }) {
   };
 
   return (
-    <div className="menu up wide end">
-      {usable.length === 0 && <div className="menu-note">Add an API key to choose a model.</div>}
-      {usable.map((p) => (
-        <div key={p.id} className="menu-group">
-          <div className="menu-label">{p.name}</div>
-          {p.models.map((m) => (
-            <button key={m} className="menu-item" onClick={() => pick(p.id, m)}>
-              <span className="mi-main mono">{m}</span>
-              {settings.provider === p.id && settings.model === m && <Check size={14} />}
-            </button>
-          ))}
-        </div>
-      ))}
+    <div className="menu up wide end model-menu">
       <form
-        className="menu-custom"
+        className="menu-search"
         onSubmit={(e) => {
           e.preventDefault();
-          if (custom.trim()) pick(settings.provider, custom.trim());
+          if (query.trim()) pick(settings.provider, query.trim());
         }}
       >
-        <input placeholder={`Other ${settings.provider} model id…`} value={custom} onChange={(e) => setCustom(e.target.value)} />
+        <input autoFocus placeholder="Search models, or type a model id…" value={query} onChange={(e) => setQuery(e.target.value)} />
       </form>
+      {usable.length === 0 && <div className="menu-note">Add an API key to choose a model.</div>}
+      {usable.map((p) => {
+        const list = models[p.id];
+        const all: ModelInfo[] = list?.models ?? p.models.map((id) => ({ id }));
+        const shown = q ? all.filter((m) => m.id.toLowerCase().includes(q) || modelLabel(m.id, all).toLowerCase().includes(q)) : all;
+        if (q && shown.length === 0) return null;
+        // A local endpoint that isn't set up yet has nothing to offer.
+        if (list && all.length === 0) return null;
+        return (
+          <div key={p.id} className="menu-group">
+            <div className="menu-label">
+              {p.name}
+              <span className="spacer" />
+              <button
+                className="icon-btn xs"
+                title={list?.error ? `Couldn't refresh: ${list.error}` : "Refresh model list"}
+                onClick={() => void loadModels(p.id, true)}
+              >
+                <RefreshCw size={11} className={loading[p.id] ? "spin" : ""} />
+              </button>
+            </div>
+            {list?.error && list.source !== "live" && (
+              <div className="menu-hint" title={list.error}>
+                {list.source === "cache" ? "Showing the last list we fetched." : "Couldn't reach the provider. Showing defaults."}
+              </div>
+            )}
+            {!list && loading[p.id] && <div className="menu-hint">Loading models…</div>}
+            {shown.map((m) => (
+              <button key={m.id} className="menu-item" onClick={() => pick(p.id, m.id)} title={m.id}>
+                <span className="mi-main">
+                  {modelLabel(m.id, all)}
+                  <small className="mono">{m.id}</small>
+                </span>
+                {settings.provider === p.id && settings.model === m.id && <Check size={14} />}
+              </button>
+            ))}
+          </div>
+        );
+      })}
       <button
         className="menu-item subtle"
         onClick={() => {

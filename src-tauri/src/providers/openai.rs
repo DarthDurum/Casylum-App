@@ -80,10 +80,12 @@ pub async fn stream(
     let mut body = json!({
         "model": req.model,
         "messages": to_wire(req.system, req.messages),
-        "tools": tools,
         "stream": true,
         "stream_options": {"include_usage": true},
     });
+    if !tools.is_empty() {
+        body["tools"] = json!(tools);
+    }
     if is_openai {
         body["max_completion_tokens"] = json!(32000);
     }

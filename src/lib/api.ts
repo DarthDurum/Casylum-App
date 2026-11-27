@@ -1,6 +1,7 @@
 // Typed bridge to the Rust core. API keys never come back through here:
 // the UI only ever sees whether a key exists and a masked hint.
 import { invoke } from "@tauri-apps/api/core";
+import type { ModelList } from "./models";
 
 export type Role = "user" | "assistant";
 
@@ -27,6 +28,7 @@ export interface Settings {
   custom_base_url: string;
   recent_projects: string[];
   disabled_skills: string[];
+  auto_update: boolean;
 }
 
 export interface Provider {
@@ -101,6 +103,7 @@ export const api = {
   listProviders: () => invoke<Provider[]>("list_providers"),
   setApiKey: (provider: string, key: string) => invoke<void>("set_api_key", { provider, key }),
   deleteApiKey: (provider: string) => invoke<void>("delete_api_key", { provider }),
+  listModels: (provider: string, refresh = false) => invoke<ModelList>("list_models", { provider, refresh }),
 
   addRecentProject: (path: string) => invoke<Settings>("add_recent_project", { path }),
   removeRecentProject: (path: string) => invoke<Settings>("remove_recent_project", { path }),

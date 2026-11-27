@@ -66,9 +66,11 @@ pub async fn stream(
         "max_tokens": 64000,
         "system": [{"type": "text", "text": req.system, "cache_control": {"type": "ephemeral"}}],
         "messages": to_wire(req.messages),
-        "tools": tools,
         "stream": true,
     });
+    if !tools.is_empty() {
+        body["tools"] = json!(tools);
+    }
     if modern(req.model) {
         body["thinking"] = json!({"type": "adaptive", "display": "summarized"});
         body["output_config"] = json!({"effort": "high"});
