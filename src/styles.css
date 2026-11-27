@@ -1351,8 +1351,29 @@ kbd {
 .plan-item.in_progress svg {
   color: var(--accent);
 }
+.plan-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  user-select: text;
+}
+.plan-title {
+  font-weight: 550;
+  line-height: 1.45;
+}
+.plan-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.plan-item.in_progress .plan-desc {
+  color: var(--text-2);
+}
 .plan-item.done {
   color: var(--muted);
+}
+.plan-item.done .plan-title {
   text-decoration: line-through;
   text-decoration-color: var(--line-2);
 }

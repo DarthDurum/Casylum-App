@@ -41,6 +41,8 @@ export function stepLabel(t: ToolUse, r?: ToolResult): { verb: string; target: s
 
 export interface PlanItem {
   text: string;
+  /** Optional one-sentence detail; older chats and some models leave it out. */
+  description?: string;
   status: "pending" | "in_progress" | "done";
 }
 

@@ -67,10 +67,11 @@ pub fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "update_plan",
-            description: "Show the user your plan as a checklist. Call at the start of multi-step work and whenever a step changes status. Send the full list each time.",
+            description: "Show the user your plan as a checklist. Call at the start of multi-step work and whenever a step changes status. Send the full list each time. Give each step a short title and, where it helps, a one-sentence description of what the step involves (which files, what you'll check or change).",
             schema: json!({"type": "object", "properties": {
                 "items": {"type": "array", "items": {"type": "object", "properties": {
-                    "text": {"type": "string"},
+                    "text": {"type": "string", "description": "Short step title, a few words"},
+                    "description": {"type": "string", "description": "Optional. One sentence on what this step involves"},
                     "status": {"type": "string", "enum": ["pending", "in_progress", "done"]}
                 }, "required": ["text", "status"]}}
             }, "required": ["items"]}),
