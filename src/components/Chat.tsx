@@ -87,6 +87,11 @@ function Conversation() {
     if (el && stick) el.scrollTop = el.scrollHeight;
   }, [chat.messages, chat.draft, chat.approvals, stick]);
 
+  const sessionId = useStore((s) => s.sessionId);
+  useEffect(() => {
+    if (!chat.running && sessionId) runStarts.delete(sessionId);
+  }, [chat.running, sessionId]);
+
   const onScroll = () => {
     const el = scroller.current;
     if (el) setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
@@ -123,13 +128,7 @@ function Conversation() {
             {chat.draft.pendingTool && <div className="pending-tool">Preparing {chat.draft.pendingTool.replace("_", " ")}…</div>}
           </div>
         )}
-        {chat.running && !chat.draft?.text && !chat.draft?.pendingTool && !Object.keys(chat.approvals).length && (
-          <div className="working">
-            <span className="dot" />
-            <span className="dot" />
-            <span className="dot" />
-          </div>
-        )}
+        {chat.running && <WorkingLine waiting={Object.keys(chat.approvals).length > 0} />}
         {chat.error && <ErrorNote text={chat.error} />}
         {!chat.running && chat.lastRun && (
           <div className="run-summary">
@@ -142,6 +141,37 @@ function Conversation() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// When each session's current run started, so the timer survives switching chats.
+const runStarts = new Map<string, number>();
+
+function elapsed(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** The live line at the bottom of a running chat: what the agent is doing and for how long. */
+function WorkingLine({ waiting }: { waiting: boolean }) {
+  const sessionId = useStore((s) => s.sessionId) ?? "";
+  if (!runStarts.has(sessionId)) runStarts.set(sessionId, Date.now());
+  const start = runStarts.get(sessionId)!;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  return (
+    <div className={`working ${waiting ? "waiting" : ""}`}>
+      <span className="dots" aria-hidden="true">
+        <span className="dot" />
+        <span className="dot" />
+        <span className="dot" />
+      </span>
+      <span role="status">{waiting ? "Waiting for your approval" : "Working"}</span>
+      {!waiting && <span className="working-time" aria-hidden="true">for {elapsed(now - start)}</span>}
     </div>
   );
 }

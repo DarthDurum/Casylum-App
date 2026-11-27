@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, FolderOpen, MessageSquarePlus, Moon, Settings2, Sparkles, Sun, Trash2, X } from "lucide-react";
+import { ChevronDown, Command, FolderOpen, Moon, Plus, Settings2, Sparkles, Sun, Trash2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { basename } from "../lib/api";
 import { useStore } from "../store";
@@ -67,9 +67,14 @@ export function Rail() {
       </div>
 
       <button className="new-chat" onClick={() => st().newChat()} disabled={!project}>
-        <MessageSquarePlus size={15} />
+        <Plus size={16} />
         New chat
         <kbd>Ctrl N</kbd>
+      </button>
+      <button className="new-chat" onClick={() => st().setModal("palette")}>
+        <Command size={15} />
+        Commands
+        <kbd>Ctrl K</kbd>
       </button>
 
       <div className="rail-label">Chats</div>
