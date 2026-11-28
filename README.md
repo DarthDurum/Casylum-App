@@ -11,7 +11,7 @@ A calm, fast desktop AI coding agent. Bring your own API keys, open a folder, an
 
 ## Features
 
-- **Bring your own keys:** Anthropic, OpenAI, Google Gemini, OpenRouter, Ollama (local) and any OpenAI-compatible endpoint. Keys live in your OS keychain (macOS Keychain, Windows Credential Manager, Secret Service on Linux) and never reach the UI layer.
+- **Bring your own keys:** Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, Abacus.AI (RouteLLM), Mistral, DeepSeek, xAI (Grok), Together AI, Fireworks AI, Cerebras, Perplexity (chat only), Cohere, DeepInfra, Hugging Face, SambaNova, Nebius, Novita, Moonshot (Kimi), Z.ai (GLM), Alibaba Qwen, Ollama and LM Studio (local), and any OpenAI-compatible endpoint. Model lists are fetched live from each provider. Keys live in your OS keychain (macOS Keychain, Windows Credential Manager, Secret Service on Linux) and never reach the UI layer.
 - **Agent with real tools:** read, list, search (ripgrep engine), edit and create files, run commands, keep a live plan, load skills.
 - **You stay in control:** three permission modes (Ask first, Auto-edit, Full auto), inline approve or deny with a preview of the exact diff or command, a Stop button that leaves the conversation in a clean state, and **Undo this run** to restore every file the agent touched.
 - **Calm workspace:** tidy step cards instead of log walls, a side panel for Plan, Changes (diffs), Files and Terminal, a command palette (`Ctrl/Cmd+K`), dark and light themes.
@@ -69,7 +69,7 @@ Without the secrets, releases still build installers but aren't offered as in-ap
 ```
 src-tauri/src/
   agent.rs        agent loop, approvals, sessions, undo checkpoints
-  providers/      anthropic.rs, openai.rs (also OpenRouter/Ollama/custom), gemini.rs, SSE reader
+  providers/      anthropic.rs, openai.rs (every OpenAI-compatible provider), gemini.rs, SSE reader
   tools.rs        read/list/search/write/edit/run/plan/skill tools, sandboxed to the project
   skills.rs       skill discovery, loading and editing
   keys.rs         OS keychain storage

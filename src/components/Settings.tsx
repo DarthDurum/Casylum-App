@@ -11,6 +11,12 @@ export function SettingsModal() {
   const settings = useStore((s) => s.settings)!;
   const update = useStore((s) => s.updateSettings);
   const [tab, setTab] = useState<"providers" | "general">("providers");
+  const [filter, setFilter] = useState("");
+  const f = filter.trim().toLowerCase();
+  // Connected providers first, then the rest in catalog order.
+  const shown = providers
+    .filter((p) => !f || p.name.toLowerCase().includes(f) || p.id.includes(f))
+    .sort((a, b) => Number(b.has_key || b.id === settings.provider) - Number(a.has_key || a.id === settings.provider));
 
   return (
     <Modal title="Settings" onClose={() => setModal(null)} wide>
@@ -29,9 +35,11 @@ export function SettingsModal() {
               <p className="muted lock-note">
                 <Lock size={13} /> Keys are stored in your operating system's keychain and never leave this computer except to call the provider.
               </p>
-              {providers.map((p) => (
+              <input className="provider-filter" placeholder={`Search ${providers.length} providers…`} value={filter} onChange={(e) => setFilter(e.target.value)} />
+              {shown.map((p) => (
                 <ProviderCard key={p.id} p={p} />
               ))}
+              {shown.length === 0 && <p className="muted small">No provider matches “{filter}”. Use Custom (OpenAI-compatible) for any other API.</p>}
             </>
           )}
           {tab === "general" && (
@@ -78,16 +86,16 @@ function ProviderCard({ p }: { p: Provider }) {
   const notify = useStore((s) => s.notify);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
-  const isUrlProvider = p.id === "ollama" || p.id === "custom";
-  const urlField = p.id === "ollama" ? "ollama_base_url" : "custom_base_url";
-  const [url, setUrl] = useState(isUrlProvider ? (settings as any)[urlField] : "");
+  const urlField = p.url_setting;
+  const isUrlProvider = !!urlField;
+  const [url, setUrl] = useState(urlField ? settings[urlField] : "");
   const active = settings.provider === p.id;
 
   const save = async () => {
     setBusy(true);
     try {
       if (key.trim()) await api.setApiKey(p.id, key.trim());
-      if (isUrlProvider) await update({ [urlField]: url.trim() } as any);
+      if (urlField) await update({ [urlField]: url.trim() });
       setKey("");
       await refresh();
       const list = await useStore.getState().loadModels(p.id, true);
@@ -121,6 +129,7 @@ function ProviderCard({ p }: { p: Provider }) {
             ) : (
               "No key needed"
             )}
+            {p.tools === false && <span title="This provider's API can't call tools, so it can chat but not edit files or run commands."> · Chat only</span>}
           </div>
         </div>
         {p.key_url && (
@@ -130,7 +139,7 @@ function ProviderCard({ p }: { p: Provider }) {
         )}
       </div>
       <div className="provider-form">
-        {isUrlProvider && <input placeholder="Base URL, e.g. http://localhost:11434/v1" value={url} onChange={(e) => setUrl(e.target.value)} />}
+        {isUrlProvider && <input placeholder={`Base URL, e.g. ${p.base_url || "https://api.example.com/v1"}`} value={url} onChange={(e) => setUrl(e.target.value)} />}
         <div className="key-row">
           <KeyRound size={14} />
           <input

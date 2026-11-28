@@ -1692,6 +1692,10 @@ body.dragging .panel-drag {
   flex-direction: column;
   gap: 10px;
 }
+.provider-filter {
+  width: 100%;
+  margin: 2px 0 4px;
+}
 .lock-note {
   display: flex;
   align-items: center;
@@ -2036,6 +2040,8 @@ body.dragging .panel-drag {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
+  max-height: 232px;
+  overflow-y: auto;
 }
 .provider-pick {
   padding: 10px 8px;

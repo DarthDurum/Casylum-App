@@ -15,7 +15,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [key, setKey] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const settings = useStore((s) => s.settings);
-  const connected = providers.some((p) => p.has_key) || ["ollama", "custom"].includes(settings?.provider ?? "");
+  const connected = providers.some((p) => p.has_key) || ["ollama", "lmstudio", "custom"].includes(settings?.provider ?? "");
   const [step, setStep] = useState<1 | 2>(connected ? 2 : 1);
   const p = providers.find((x) => x.id === pid);
 
@@ -54,7 +54,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <h3>Connect a model provider</h3>
             <div className="provider-grid">
               {providers
-                .filter((x) => x.id !== "custom")
+                .filter((x) => !x.url_setting || x.local)
                 .map((x) => (
                   <button key={x.id} className={`provider-pick ${pid === x.id ? "on" : ""}`} onClick={() => setPid(x.id)}>
                     {x.name}
@@ -66,7 +66,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 <input type="password" placeholder={`${p.name} API key`} value={key} autoFocus onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveKey()} />
               </div>
             ) : (
-              <p className="muted small">Make sure Ollama is running locally. You can change its address in Settings.</p>
+              <p className="muted small">Make sure {p?.name.replace(/ \(local\)$/, "") ?? "the server"} is running on this computer. You can change its address in Settings.</p>
             )}
             <div className="onboard-row">
               {p?.key_url && (

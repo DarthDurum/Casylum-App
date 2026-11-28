@@ -82,7 +82,7 @@ export default function App() {
     );
 
   // Local providers (Ollama, custom endpoints) count as connected without a key.
-  const hasProvider = providers.some((p) => p.has_key) || ["ollama", "custom"].includes(settings?.provider ?? "");
+  const hasProvider = providers.some((p) => p.has_key) || ["ollama", "lmstudio", "custom"].includes(settings?.provider ?? "");
   // A folder is optional: chats without one just can't touch files.
   if (!onboarded && !hasProvider) {
     return (

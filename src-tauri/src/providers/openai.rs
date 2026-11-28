@@ -1,5 +1,5 @@
-//! OpenAI Chat Completions adapter. Also used for OpenRouter, Ollama and any
-//! OpenAI-compatible endpoint.
+//! OpenAI Chat Completions adapter. Also used for OpenRouter, Groq, Mistral,
+//! DeepSeek and every other OpenAI-compatible provider or local server.
 
 use super::{check, Sse, TurnRequest};
 use crate::types::*;
@@ -96,8 +96,11 @@ pub async fn stream(
         "model": req.model,
         "messages": to_wire(req.system, req.messages),
         "stream": true,
-        "stream_options": {"include_usage": true},
     });
+    // Mistral and Cohere reject fields they don't know; they send usage anyway.
+    if !matches!(req.provider, "mistral" | "cohere") {
+        body["stream_options"] = json!({"include_usage": true});
+    }
     if !tools.is_empty() {
         body["tools"] = json!(tools);
     }

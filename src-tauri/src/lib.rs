@@ -79,11 +79,7 @@ async fn list_models(st: State<'_, App>, provider: String, refresh: Option<bool>
     let p = provider.clone();
     let key = tauri::async_runtime::spawn_blocking(move || keys::get(&p)).await.map_err(e)?;
     let s = settings::load();
-    let base = match provider.as_str() {
-        "ollama" => Some(s.ollama_base_url),
-        "custom" => Some(s.custom_base_url),
-        _ => None,
-    };
+    let base = providers::base_url(&provider, &s);
     Ok(providers::models::list(&st.http, &provider, key, base, refresh.unwrap_or(false)).await)
 }
 
