@@ -35,6 +35,10 @@ fn to_wire(messages: &[Message]) -> Vec<Value> {
                     Block::ToolResult { tool_use_id, content, is_error, .. } => {
                         json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error})
                     }
+                    Block::Image { media_type, data, .. } => {
+                        json!({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}})
+                    }
+                    Block::File { name, text } => json!({"type": "text", "text": file_as_text(name, text)}),
                 })
                 .collect();
             json!({"role": if m.role == Role::User { "user" } else { "assistant" }, "content": content})

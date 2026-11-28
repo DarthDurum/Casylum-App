@@ -215,16 +215,59 @@ fn chat_prompt() -> String {
     format!(
         "You are Casylum, an expert software engineer and helpful assistant.\n\
          OS: {os}\nDate: {date}\n\n\
-         No project folder is open in this chat, so you cannot read files, edit code or run commands. \
+         No folder is chosen for this chat, so you cannot read files, edit code or run commands. \
          Answer questions, explain, and write code in your replies. If the user asks for something that needs their files, \
-         tell them to open a folder with the folder button at the top of the sidebar (or Ctrl+O) and start a chat there.\n\
+         tell them to either choose a folder for this chat (folder button at the top of the sidebar, or Ctrl+O), \
+         or switch the mode under the message box to Full auto, which gives you their whole computer.\n\
          Be concise.\n"
+    )
+}
+
+/// Providers want roles to alternate, but a chat can hold user messages in a
+/// row (after an error, or when the user deletes a reply). Join them for the
+/// request; storage keeps them apart.
+fn wire_messages(messages: &[Message]) -> Vec<Message> {
+    let mut out: Vec<Message> = Vec::with_capacity(messages.len());
+    for m in messages {
+        match out.last_mut() {
+            Some(last) if last.role == Role::User && m.role == Role::User => {
+                let mut all = std::mem::take(&mut last.content);
+                all.extend(m.content.iter().cloned());
+                // Tool results must lead a user message.
+                let (mut results, rest): (Vec<_>, Vec<_>) = all.into_iter().partition(|b| matches!(b, Block::ToolResult { .. }));
+                results.extend(rest);
+                last.content = results;
+            }
+            _ => out.push(m.clone()),
+        }
+    }
+    out
+}
+
+fn pc_prompt(home: &Path) -> String {
+    let os = std::env::consts::OS;
+    let date = chrono::Utc::now().format("%Y-%m-%d");
+    format!(
+        "You are Casylum, an expert software engineer working on the user's computer.\n\
+         OS: {os}\nDate: {date}\nHome folder: {home}\n\n\
+         The user turned on Full auto without choosing a folder, so you have access to their whole computer: \
+         you can read, write and edit files anywhere and run commands without asking. \
+         Relative paths and commands start in the home folder; use absolute paths (or ~/...) for anything else. \
+         To run a command somewhere else, cd there inside the command.\n\n\
+         How to work:\n\
+         - Explore before changing: use list_dir, search and read_file.\n\
+         - For multi-step tasks, call update_plan first and keep it current.\n\
+         - Be careful: never delete or overwrite files the user didn't ask you to touch, and avoid system folders unless asked.\n\
+         - Be concise. When done, summarize what changed and where.\n",
+        home = home.display()
     )
 }
 
 pub struct SendArgs {
     pub session_id: String,
     pub text: String,
+    /// Images and files attached to this message.
+    pub attachments: Vec<Block>,
     pub provider: String,
     pub model: String,
 }
@@ -265,8 +308,16 @@ async fn drive(
 ) -> Result<usize> {
     let sid = &args.session_id;
     let mut session = load_session(sid)?;
-    // A chat without a folder is plain conversation: no file or shell tools.
-    let root = (!session.project.is_empty()).then(|| PathBuf::from(&session.project));
+    // A chat with a folder works inside it. Without one, Full auto gets the
+    // whole computer (starting in the home folder); other modes just chat.
+    let whole_pc = session.project.is_empty() && settings::load().permission_mode == PermissionMode::FullAuto;
+    let root = if !session.project.is_empty() {
+        Some(PathBuf::from(&session.project))
+    } else if whole_pc {
+        Some(dirs::home_dir().unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "C:\\" } else { "/" })))
+    } else {
+        None
+    };
     if let Some(root) = &root {
         if !root.is_dir() {
             return Err(anyhow!("Project folder not found: {}", root.display()));
@@ -275,13 +326,23 @@ async fn drive(
     session.provider = args.provider.clone();
     session.model = args.model.clone();
     if session.messages.is_empty() {
-        session.title = title_from(&args.text);
+        let first_file = args.attachments.iter().find_map(|b| match b {
+            Block::Image { name, .. } | Block::File { name, .. } => Some(name.as_str()),
+            _ => None,
+        });
+        session.title = title_from(if args.text.trim().is_empty() { first_file.unwrap_or("") } else { &args.text });
     }
-    // Merge into a trailing user message (e.g. after an error) to keep roles alternating.
-    match session.messages.last_mut() {
-        Some(m) if m.role == Role::User => m.content.push(Block::Text { text: args.text.clone() }),
-        _ => session.messages.push(Message::user_text(&args.text)),
+    let mut content = vec![];
+    if !args.text.trim().is_empty() {
+        content.push(Block::Text { text: args.text.clone() });
     }
+    content.extend(args.attachments.iter().filter(|b| b.is_attachment()).cloned());
+    if content.is_empty() {
+        return Err(anyhow!("Nothing to send."));
+    }
+    // Kept as its own message so it can be edited or deleted on its own;
+    // `wire_messages` joins it with a trailing user message for the provider.
+    session.messages.push(Message { role: Role::User, content });
     session.updated_at = now();
     save_session(&session)?;
     emit(app, AgentEvent::Message { session_id: sid.clone(), message: session.messages.last().unwrap().clone() });
@@ -314,6 +375,7 @@ async fn drive(
             _ => None,
         };
         let system = match &root {
+            Some(home) if whole_pc => pc_prompt(home),
             Some(root) => system_prompt(root, &settings.disabled_skills),
             None => chat_prompt(),
         };
@@ -321,7 +383,7 @@ async fn drive(
             provider: &args.provider,
             model: &args.model,
             system: &system,
-            messages: &session.messages,
+            messages: &wire_messages(&session.messages),
             tools: &specs,
             api_key: crate::keys::get(&args.provider),
             base_url,
@@ -420,7 +482,7 @@ async fn drive(
                 continue;
             };
             emit(app, AgentEvent::ToolRunning { session_id: sid.clone(), tool_use_id: id.clone() });
-            let mut ctx = ToolCtx { root, disabled_skills: &settings::load().disabled_skills, checkpoint: &mut checkpoint };
+            let mut ctx = ToolCtx { root, unrestricted: whole_pc, disabled_skills: &settings::load().disabled_skills, checkpoint: &mut checkpoint };
             let out = tools::run(&name, &input, &mut ctx).await;
             let block = Block::ToolResult { tool_use_id: id, content: out.content, is_error: out.is_error, meta: out.meta };
             emit(app, AgentEvent::ToolResult { session_id: sid.clone(), block: block.clone() });
@@ -433,6 +495,26 @@ async fn drive(
         emit(app, AgentEvent::Message { session_id: sid.clone(), message: msg });
     }
     finish(&mut session, &checkpoint)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn joins_user_runs_with_tool_results_first() {
+        let msgs = vec![
+            Message::user_text("one"),
+            Message { role: Role::Assistant, content: vec![Block::ToolUse { id: "t".into(), name: "x".into(), input: json!({}), provider_meta: None }] },
+            Message { role: Role::User, content: vec![Block::ToolResult { tool_use_id: "t".into(), content: "ok".into(), is_error: false, meta: None }] },
+            Message::user_text("two"),
+            Message::user_text("three"),
+        ];
+        let w = wire_messages(&msgs);
+        assert_eq!(w.len(), 3);
+        assert!(matches!(&w[2].content[0], Block::ToolResult { .. }));
+        assert!(matches!(&w[2].content[2], Block::Text { text } if text == "three"));
+    }
 }
 
 pub fn revert_run(session_id: &str, run_id: &str) -> Result<Vec<String>> {

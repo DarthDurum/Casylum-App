@@ -47,7 +47,7 @@ export function ContextPanel() {
   return (
     <aside className="panel" style={{ width }}>
       <div className="panel-drag" onMouseDown={startDrag} />
-      <div className="tabs">
+      <div className="tabs" data-tauri-drag-region="deep">
         {TABS.map((t) => (
           <button key={t.id} className={`tab ${panel === t.id ? "on" : ""}`} onClick={() => setPanel(t.id)}>
             {t.label}

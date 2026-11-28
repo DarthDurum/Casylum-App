@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Brain, ChevronDown, FolderOpen, PanelRight, RotateCcw, TriangleAlert } from "lucide-react";
+import { Brain, Check, ChevronDown, Copy, FolderOpen, PanelRight, Paperclip, Pencil, RotateCcw, RotateCw, Trash2, TriangleAlert } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Message } from "../lib/api";
+import type { Attachment, Message } from "../lib/api";
 import { basename } from "../lib/api";
 import { resultIndex, formatTokens, type ToolUse } from "../lib/steps";
+import { hasReply, promptParts, replyText, turns, type Turn } from "../lib/turns";
+import { AttachmentRow, readPaths, SentAttachments } from "./Attachments";
 import { useChat, useStore } from "../store";
 import { Markdown } from "./Markdown";
 import { StepCard } from "./StepCard";
@@ -20,7 +22,7 @@ export function Chat() {
 
   return (
     <main className="chat">
-      <header className="chat-head">
+      <header className="chat-head" data-tauri-drag-region="deep">
         <div className="chat-title">
           <span className="crumb">{project ? basename(project) : "No folder"}</span>
           <span className="crumb-sep">/</span>
@@ -77,8 +79,10 @@ function Conversation() {
   const project = useStore((s) => s.project);
   const send = useStore((s) => s.send);
   const revert = useStore((s) => s.revert);
+  const fullAuto = useStore((s) => s.settings?.permission_mode === "full_auto");
   const scroller = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
+  const ts = useMemo(() => turns(chat.messages), [chat.messages]);
   const results = useMemo(() => {
     const m = resultIndex(chat.messages);
     for (const [id, r] of Object.entries(chat.liveResults)) if (!m.has(id)) m.set(id, r);
@@ -107,8 +111,10 @@ function Conversation() {
         <h2>What are we building?</h2>
         {project ? (
           <p>Describe a task. Casylum reads your code, plans, makes edits you can review, and runs commands.</p>
+        ) : fullAuto ? (
+          <p>Full auto is on and this chat has no folder, so Casylum can read, change and run anything on your PC without asking.</p>
         ) : (
-          <p>Ask anything. To let Casylum read and edit your code, open a folder.</p>
+          <p>Ask anything. To let Casylum read and edit your code, choose a folder for this chat, or switch to Full auto to give it your whole PC.</p>
         )}
         {!project && <OpenFolderButton />}
         <div className="suggestions">
@@ -126,9 +132,23 @@ function Conversation() {
   return (
     <div className="scroller" ref={scroller} onScroll={onScroll}>
       <div className="thread">
-        {chat.messages.map((m, i) => (
-          <MessageView key={i} message={m} results={results} />
-        ))}
+        {ts.map((t, ti) => {
+          const latest = ti === ts.length - 1;
+          // The turn being written right now gets no actions until it's done.
+          const live = latest && chat.running;
+          return (
+            <div key={t.start} className={`turn ${latest ? "latest" : ""}`}>
+              {chat.messages.slice(t.start, t.end).map((m, j) =>
+                t.prompt && j === 0 ? (
+                  <UserMessage key={t.start} message={m} turn={t} latest={latest} locked={chat.running} />
+                ) : (
+                  <MessageView key={t.start + j} message={m} results={results} />
+                ),
+              )}
+              {t.prompt && hasReply(t) && !live && <ReplyActions turn={t} locked={chat.running} />}
+            </div>
+          );
+        })}
         {chat.draft && (chat.draft.text || chat.draft.thinking || chat.draft.pendingTool) && (
           <div className="msg assistant">
             {chat.draft.thinking && <Thinking text={chat.draft.thinking} live />}
@@ -215,21 +235,174 @@ function Thinking({ text, live }: { text: string; live?: boolean }) {
   );
 }
 
-function MessageView({ message, results }: { message: Message; results: ReturnType<typeof resultIndex> }) {
-  const chat = useChat();
-  if (message.role === "user") {
-    const texts = message.content.filter((b) => b.type === "text");
-    if (!texts.length) return null; // tool results render inside their step cards
+function useCopy() {
+  const [copied, setCopied] = useState(false);
+  const copy = (text: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    });
+  };
+  return { copied, copy };
+}
+
+/** Delete asks once more on the same button, so a stray click can't lose a message. */
+function DeleteButton({ label, onConfirm, disabled }: { label: string; onConfirm: () => void; disabled?: boolean }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = window.setTimeout(() => setArmed(false), 3000);
+    return () => window.clearTimeout(t);
+  }, [armed]);
+  return (
+    <button
+      className={`act danger ${armed ? "armed" : ""}`}
+      disabled={disabled}
+      onClick={() => (armed ? onConfirm() : setArmed(true))}
+      onBlur={() => setArmed(false)}
+      title={armed ? "Click again to delete" : label}
+      aria-label={armed ? "Confirm delete" : label}
+    >
+      <Trash2 size={13} />
+      {armed && <span>Delete?</span>}
+    </button>
+  );
+}
+
+function UserMessage({ message, turn, latest, locked }: { message: Message; turn: Turn; latest: boolean; locked: boolean }) {
+  const deleteTurn = useStore((s) => s.deleteTurn);
+  const retry = useStore((s) => s.retry);
+  const [editing, setEditing] = useState(false);
+  const { copied, copy } = useCopy();
+  const { text, attachments } = promptParts(message);
+  const texts = message.content.filter((b) => b.type === "text") as Array<{ type: "text"; text: string }>;
+
+  if (editing) {
     return (
       <div className="msg user">
-        {texts.map((b, i) => (
-          <div className="bubble" key={i}>
-            {(b as any).text}
-          </div>
-        ))}
+        <EditBox start={turn.start} text={text} attachments={attachments} latest={latest} onClose={() => setEditing(false)} />
       </div>
     );
   }
+
+  return (
+    <div className="msg user">
+      <SentAttachments items={attachments} />
+      {texts.map((b, i) => (
+        <div className="bubble" key={i}>
+          {b.text}
+        </div>
+      ))}
+      <div className="msg-actions">
+        <button className="act" onClick={() => copy(text)} title="Copy" aria-label="Copy message" disabled={!text}>
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+        <button className="act" onClick={() => setEditing(true)} disabled={locked} title={locked ? "Wait for Casylum to finish" : "Edit"} aria-label="Edit message">
+          <Pencil size={13} />
+        </button>
+        {!hasReply(turn) && (
+          <button className="act" onClick={() => void retry(turn.start)} disabled={locked} title="Send again" aria-label="Send again">
+            <RotateCw size={13} />
+          </button>
+        )}
+        <DeleteButton label="Delete message and its reply" disabled={locked} onConfirm={() => void deleteTurn(turn.start)} />
+      </div>
+    </div>
+  );
+}
+
+function EditBox({ start, text, attachments, latest, onClose }: { start: number; text: string; attachments: Attachment[]; latest: boolean; onClose: () => void }) {
+  const editAndSend = useStore((s) => s.editAndSend);
+  const notify = useStore((s) => s.notify);
+  const [value, setValue] = useState(text);
+  const [atts, setAtts] = useState(attachments);
+  const ta = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ta.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = Math.min(el.scrollHeight, 320) + "px";
+  }, [value]);
+
+  useEffect(() => {
+    const el = ta.current;
+    el?.focus();
+    el?.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+
+  const empty = !value.trim() && !atts.length;
+  const save = () => {
+    if (empty) return;
+    onClose();
+    void editAndSend(start, value.trim(), atts);
+  };
+
+  return (
+    <div className="edit-box">
+      <AttachmentRow items={atts} onRemove={(i) => setAtts((a) => a.filter((_, j) => j !== i))} />
+      <textarea
+        ref={ta}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onClose();
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            save();
+          }
+        }}
+        rows={1}
+      />
+      <div className="edit-bar">
+        <button
+          className="icon-btn sm"
+          title="Attach files"
+          aria-label="Attach files"
+          onClick={async () => {
+            const picked = await open({ multiple: true, directory: false, title: "Attach files" });
+            const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
+            const more = await readPaths(paths, notify);
+            if (more.length) setAtts((a) => [...a, ...more]);
+          }}
+        >
+          <Paperclip size={14} />
+        </button>
+        <span className="edit-hint">{latest ? "" : "Sending replaces everything after this message"}</span>
+        <button className="btn ghost sm" onClick={onClose}>
+          Cancel
+        </button>
+        <button className="btn primary sm" onClick={save} disabled={empty}>
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReplyActions({ turn, locked }: { turn: Turn; locked: boolean }) {
+  const chat = useChat();
+  const retry = useStore((s) => s.retry);
+  const deleteReply = useStore((s) => s.deleteReply);
+  const { copied, copy } = useCopy();
+  const text = replyText(chat.messages, turn);
+  return (
+    <div className="reply-actions">
+      <button className="act" onClick={() => copy(text)} disabled={!text} title="Copy reply" aria-label="Copy reply">
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+      </button>
+      <button className="act" onClick={() => void retry(turn.start)} disabled={locked} title="Try again" aria-label="Try again">
+        <RotateCw size={13} />
+      </button>
+      <DeleteButton label="Delete reply" disabled={locked} onConfirm={() => void deleteReply(turn.start)} />
+    </div>
+  );
+}
+
+function MessageView({ message, results }: { message: Message; results: ReturnType<typeof resultIndex> }) {
+  const chat = useChat();
+  // Tool results render inside their step cards.
+  if (message.role === "user") return null;
 
   // Group consecutive tool calls into one "steps" stack.
   const groups: Array<{ kind: "steps"; tools: ToolUse[] } | { kind: "block"; block: Message["content"][number] }> = [];

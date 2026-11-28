@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   api,
   type AgentEvent,
+  type Attachment,
   type Message,
   type Provider,
   type RunInfo,
@@ -10,6 +11,7 @@ import {
   type Usage,
 } from "./lib/api";
 import type { ModelList } from "./lib/models";
+import { before, turns, withoutReply, withoutTurn, promptParts, type Turn } from "./lib/turns";
 
 export interface Approval {
   requestId: string;
@@ -59,7 +61,7 @@ interface Store {
   /** Live model lists by provider id. */
   models: Record<string, ModelList>;
   modelsLoading: Record<string, boolean>;
-  /** null means chats without a folder. */
+  /** The current chat's folder (or the folder a new chat will start in). null means no folder. */
   project: string | null;
   sessions: SessionSummary[];
   sessionId: string | null;
@@ -73,15 +75,25 @@ interface Store {
   init(): Promise<void>;
   refreshProviders(): Promise<void>;
   loadModels(provider: string, refresh?: boolean): Promise<ModelList | null>;
+  /** Clear the current chat's folder. */
   leaveProject(): Promise<void>;
   updateSettings(patch: Partial<Settings>): Promise<void>;
+  /** Set the current chat's folder. Other chats keep theirs. */
   openProject(path: string): Promise<void>;
   closeProject(path: string): Promise<void>;
   refreshSessions(): Promise<void>;
   newChat(): Promise<string | null>;
   selectSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
-  send(text: string): Promise<void>;
+  send(text: string, attachments?: Attachment[]): Promise<void>;
+  /** Remove a turn: the message the user sent and its reply. */
+  deleteTurn(start: number): Promise<void>;
+  /** Remove only the reply to a turn, keeping what the user sent. */
+  deleteReply(start: number): Promise<void>;
+  /** Drop the turn's reply and everything after it, then send its prompt again. */
+  retry(start: number): Promise<void>;
+  /** Replace the turn's prompt (dropping everything after it) and send it. */
+  editAndSend(start: number, text: string, attachments: Attachment[]): Promise<void>;
   stop(): Promise<void>;
   decide(toolUseId: string, decision: "allow" | "allow_always" | "deny"): Promise<void>;
   revert(runId: string): Promise<void>;
@@ -115,6 +127,40 @@ export const useStore = create<Store>((set, get) => {
     patchChat(id, (c) => ({ messages: sess.messages, usage: sess.usage, runs: sess.runs, running: c.running }));
   };
 
+  /** Change the current chat's folder ("" for none). With no chat open yet,
+   *  it becomes the folder the next new chat starts in. */
+  const setFolder = async (path: string) => {
+    const sid = get().sessionId;
+    if (sid) {
+      try {
+        await api.setSessionProject(sid, path);
+      } catch (e) {
+        get().notify(String(e));
+        return;
+      }
+      set((s) => ({ sessions: s.sessions.map((x) => (x.id === sid ? { ...x, project: path } : x)) }));
+    }
+    set({ project: path || null });
+  };
+
+  /** Save a chat with one turn changed. Returns false if nothing was saved. */
+  const rewrite = async (start: number, change: (messages: Message[], t: Turn) => Message[]) => {
+    const sid = get().sessionId;
+    const chat = sid ? get().chats[sid] : undefined;
+    if (!sid || !chat || chat.running) return false;
+    const t = turns(chat.messages).find((x) => x.start === start);
+    if (!t) return false;
+    const next = change(chat.messages, t);
+    try {
+      await api.setMessages(sid, next);
+    } catch (e) {
+      get().notify(String(e));
+      return false;
+    }
+    patchChat(sid, () => ({ messages: next, lastRun: null, error: null }));
+    return true;
+  };
+
   return {
     ready: false,
     settings: null,
@@ -134,8 +180,7 @@ export const useStore = create<Store>((set, get) => {
     async init() {
       const [settings, providers, running] = await Promise.all([api.getSettings(), api.listProviders(), api.running()]);
       document.documentElement.dataset.theme = settings.theme;
-      const project = settings.recent_projects[0] ?? null;
-      set({ settings, providers, project, ready: true });
+      set({ settings, providers, project: null, ready: true });
       for (const sid of running) patchChat(sid, () => ({ running: true }));
       loadUsableModels();
       await get().refreshSessions();
@@ -163,10 +208,7 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async leaveProject() {
-      set({ project: null, sessionId: null });
-      await get().refreshSessions();
-      const first = get().sessions[0];
-      if (first) await get().selectSession(first.id);
+      await setFolder("");
     },
 
     async updateSettings(patch) {
@@ -179,23 +221,18 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async openProject(path) {
-      const settings = await api.addRecentProject(path);
-      set({ settings, project: path, sessionId: null });
-      await get().refreshSessions();
-      const first = get().sessions[0];
-      if (first) await get().selectSession(first.id);
+      set({ settings: await api.addRecentProject(path) });
+      await setFolder(path);
     },
 
     async closeProject(path) {
-      const settings = await api.removeRecentProject(path);
-      const project = get().project === path ? settings.recent_projects[0] ?? null : get().project;
-      set({ settings, project, sessionId: get().project === path ? null : get().sessionId });
-      await get().refreshSessions();
+      // Only forgets it in the recent list; chats keep their folders.
+      set({ settings: await api.removeRecentProject(path) });
     },
 
     async refreshSessions() {
-      // Chats without a folder are stored with an empty project.
-      set({ sessions: await api.listSessions(get().project ?? "") });
+      // Every chat, whatever its folder.
+      set({ sessions: await api.listSessions() });
     },
 
     async newChat() {
@@ -209,7 +246,8 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async selectSession(id) {
-      set({ sessionId: id });
+      const summary = get().sessions.find((s) => s.id === id);
+      set({ sessionId: id, project: summary ? summary.project || null : get().project });
       await loadChat(id);
     },
 
@@ -221,7 +259,7 @@ export const useStore = create<Store>((set, get) => {
       await get().refreshSessions();
     },
 
-    async send(text) {
+    async send(text, attachments = []) {
       const { settings } = get();
       if (!settings) return;
       let sid = get().sessionId;
@@ -229,10 +267,31 @@ export const useStore = create<Store>((set, get) => {
       if (!sid) return;
       patchChat(sid, () => ({ running: true, error: null, lastRun: null, draft: { text: "", thinking: "", pendingTool: null } }));
       try {
-        await api.send(sid, text, settings.provider, settings.model);
+        await api.send(sid, text, attachments, settings.provider, settings.model);
       } catch (e) {
         patchChat(sid, () => ({ running: false, draft: null, error: String(e) }));
       }
+    },
+
+    async deleteTurn(start) {
+      await rewrite(start, withoutTurn);
+    },
+
+    async deleteReply(start) {
+      await rewrite(start, withoutReply);
+    },
+
+    async retry(start) {
+      const sid = get().sessionId;
+      const prompt = sid ? get().chats[sid]?.messages[start] : undefined;
+      if (!prompt) return;
+      const { text, attachments } = promptParts(prompt);
+      if (await rewrite(start, before)) await get().send(text, attachments);
+    },
+
+    async editAndSend(start, text, attachments) {
+      if (!text.trim() && !attachments.length) return;
+      if (await rewrite(start, before)) await get().send(text, attachments);
     },
 
     async stop() {

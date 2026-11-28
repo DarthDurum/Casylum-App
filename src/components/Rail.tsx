@@ -20,6 +20,8 @@ export function Rail() {
   const chats = useStore((s) => s.chats);
   const st = useStore.getState;
   const [picker, setPicker] = useState(false);
+  // Folder tags only help when chats are spread over more than one folder.
+  const mixedFolders = new Set(sessions.map((s) => s.project)).size > 1;
 
   const pickFolder = async () => {
     const dir = await open({ directory: true, multiple: false });
@@ -29,13 +31,13 @@ export function Rail() {
 
   return (
     <aside className="rail">
-      <div className="brand">
+      <div className="brand" data-tauri-drag-region="deep">
         <div className="brand-mark" />
         <span>Casylum</span>
       </div>
 
       <div className="project-switch">
-        <button className="project-btn" onClick={() => setPicker((p) => !p)}>
+        <button className="project-btn" onClick={() => setPicker((p) => !p)} title="Folder for this chat. Other chats keep their own.">
           <FolderOpen size={14} />
           <span className="project-name">{project ? basename(project) : "No folder"}</span>
           <ChevronDown size={13} />
@@ -69,7 +71,7 @@ export function Rail() {
                 setPicker(false);
               }}
             >
-              <MessageSquare size={14} /> Chats without a folder
+              <MessageSquare size={14} /> No folder
               {!project && <Check size={14} />}
             </button>
           </div>
@@ -94,6 +96,11 @@ export function Rail() {
           <div key={s.id} className={`session ${s.id === sessionId ? "active" : ""}`} onClick={() => st().selectSession(s.id)}>
             {chats[s.id]?.running && <span className="live-dot" title="Working" />}
             <span className="session-title">{s.title}</span>
+            {mixedFolders && s.project && (
+              <span className="session-folder" title={s.project}>
+                {basename(s.project)}
+              </span>
+            )}
             <span className="session-time">{ago(s.updated_at)}</span>
             <button
               className="icon-btn sm session-del"

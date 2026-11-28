@@ -10,7 +10,14 @@ export type Block =
   | { type: "thinking"; thinking: string; signature?: string }
   | { type: "redacted_thinking"; data: string }
   | { type: "tool_use"; id: string; name: string; input: any; provider_meta?: any }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean; meta?: any };
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean; meta?: any }
+  | { type: "image"; name: string; media_type: string; data: string }
+  | { type: "file"; name: string; text: string };
+
+/** Something the user attached to a message: an image or a text file. */
+export type Attachment = Extract<Block, { type: "image" | "file" }>;
+
+export const isAttachment = (b: Block): b is Attachment => b.type === "image" || b.type === "file";
 
 export interface Message {
   role: Role;
@@ -113,10 +120,14 @@ export const api = {
     invoke<Session>("create_session", { project, provider, model }),
   loadSession: (id: string) => invoke<Session>("load_session", { id }),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
+  setSessionProject: (id: string, project: string) => invoke<void>("set_session_project", { id, project }),
   renameSession: (id: string, title: string) => invoke<void>("rename_session", { id, title }),
 
-  send: (sessionId: string, text: string, provider: string, model: string) =>
-    invoke<void>("agent_send", { sessionId, text, provider, model }),
+  setMessages: (id: string, messages: Message[]) => invoke<void>("set_messages", { id, messages }),
+  readAttachment: (path: string) => invoke<Attachment>("read_attachment", { path }),
+
+  send: (sessionId: string, text: string, attachments: Attachment[], provider: string, model: string) =>
+    invoke<void>("agent_send", { sessionId, text, attachments, provider, model }),
   stop: (sessionId: string) => invoke<void>("agent_stop", { sessionId }),
   running: () => invoke<string[]>("agent_running"),
   decide: (requestId: string, decision: Decision) => invoke<void>("agent_decide", { requestId, decision }),

@@ -24,6 +24,8 @@ fn to_wire(messages: &[Message]) -> Vec<Value> {
                 .iter()
                 .filter_map(|b| match b {
                     Block::Text { text } => Some(json!({"text": text})),
+                    Block::Image { media_type, data, .. } => Some(json!({"inlineData": {"mimeType": media_type, "data": data}})),
+                    Block::File { name, text } => Some(json!({"text": file_as_text(name, text)})),
                     Block::ToolUse { name, input, provider_meta, .. } => {
                         let mut p = json!({"functionCall": {"name": name, "args": input}});
                         if let Some(sig) = provider_meta.as_ref().and_then(|m| m.get("thoughtSignature")) {

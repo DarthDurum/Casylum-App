@@ -118,9 +118,49 @@ impl ToolOutput {
 pub type Checkpoint = HashMap<PathBuf, Option<String>>;
 
 pub struct ToolCtx<'a> {
+    /// Working directory: the chat's folder, or the home folder when the agent
+    /// has the whole computer.
     pub root: &'a Path,
+    /// Full auto without a folder: paths may point anywhere on the computer.
+    pub unrestricted: bool,
     pub disabled_skills: &'a [String],
     pub checkpoint: &'a mut Checkpoint,
+}
+
+impl ToolCtx<'_> {
+    fn resolve(&self, rel: &str) -> Result<PathBuf> {
+        if self.unrestricted {
+            resolve_anywhere(self.root, rel)
+        } else {
+            resolve(self.root, rel)
+        }
+    }
+}
+
+/// Resolve a path with no boundary: absolute paths as given, relative ones
+/// from `base`. A leading `~` means the home folder.
+pub fn resolve_anywhere(base: &Path, rel: &str) -> Result<PathBuf> {
+    let rel = rel.trim();
+    let p = match rel.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
+            dirs::home_dir().ok_or_else(|| anyhow!("No home folder"))?.join(rest.trim_start_matches(['/', '\\']))
+        }
+        _ => {
+            let p = Path::new(rel);
+            if p.is_absolute() { p.to_path_buf() } else { base.join(p) }
+        }
+    };
+    let mut norm = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::ParentDir => {
+                norm.pop();
+            }
+            Component::CurDir => {}
+            other => norm.push(other),
+        }
+    }
+    Ok(norm)
 }
 
 pub fn resolve(root: &Path, rel: &str) -> Result<PathBuf> {
@@ -223,7 +263,7 @@ pub async fn run(name: &str, input: &Value, ctx: &mut ToolCtx<'_>) -> ToolOutput
 
 fn read_file(input: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
     let rel = str_arg(input, "path")?;
-    let p = resolve(ctx.root, rel)?;
+    let p = ctx.resolve(rel)?;
     let bytes = std::fs::read(&p).map_err(|e| anyhow!("Cannot read {rel}: {e}"))?;
     if bytes.iter().take(8000).any(|b| *b == 0) {
         return Ok(ToolOutput::ok(format!("{rel} looks like a binary file ({} bytes).", bytes.len())));
@@ -248,7 +288,7 @@ fn read_file(input: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
 
 fn list_dir(input: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
     let rel = input["path"].as_str().unwrap_or(".");
-    let dir = resolve(ctx.root, rel)?;
+    let dir = ctx.resolve(rel)?;
     let depth = input["depth"].as_u64().unwrap_or(1).clamp(1, 4) as usize;
     let mut lines = vec![];
     for e in ignore::WalkBuilder::new(&dir).max_depth(Some(depth)).hidden(false).filter_entry(|e| e.file_name() != ".git").build().flatten() {
@@ -273,7 +313,7 @@ fn list_dir(input: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
 fn search(input: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
     let pattern = str_arg(input, "pattern")?;
     let re = regex::Regex::new(pattern).map_err(|e| anyhow!("Invalid regex: {e}"))?;
-    let dir = resolve(ctx.root, input["path"].as_str().unwrap_or("."))?;
+    let dir = ctx.resolve(input["path"].as_str().unwrap_or("."))?;
     let glob = match input["glob"].as_str().filter(|g| !g.is_empty()) {
         Some(g) => Some(globset::Glob::new(g)?.compile_matcher()),
         None => None,
@@ -323,7 +363,7 @@ fn remember(ctx: &mut ToolCtx, p: &Path) {
 fn write_file(input: &Value, ctx: &mut ToolCtx) -> Result<ToolOutput> {
     let rel = str_arg(input, "path")?;
     let content = str_arg(input, "content")?;
-    let p = resolve(ctx.root, rel)?;
+    let p = ctx.resolve(rel)?;
     let before = std::fs::read_to_string(&p).ok();
     remember(ctx, &p);
     if let Some(parent) = p.parent() {
@@ -343,7 +383,7 @@ fn edit_file(input: &Value, ctx: &mut ToolCtx) -> Result<ToolOutput> {
     let old = str_arg(input, "old_string")?;
     let new = str_arg(input, "new_string")?;
     let all = input["replace_all"].as_bool().unwrap_or(false);
-    let p = resolve(ctx.root, rel)?;
+    let p = ctx.resolve(rel)?;
     let before = std::fs::read_to_string(&p).map_err(|e| anyhow!("Cannot read {rel}: {e}"))?;
     if old.is_empty() {
         return Err(anyhow!("old_string is empty; use write_file to create files"));
@@ -439,7 +479,7 @@ mod tests {
         std::fs::write(root.join("a.txt"), "hello world\nhello again\n").unwrap();
         let mut cp = Checkpoint::new();
         let disabled: Vec<String> = vec![];
-        let mut ctx = ToolCtx { root: &root, disabled_skills: &disabled, checkpoint: &mut cp };
+        let mut ctx = ToolCtx { root: &root, unrestricted: false, disabled_skills: &disabled, checkpoint: &mut cp };
 
         // Ambiguous match is refused.
         let out = run("edit_file", &json!({"path": "a.txt", "old_string": "hello", "new_string": "bye"}), &mut ctx).await;
@@ -469,7 +509,7 @@ mod tests {
         let root = tmp();
         let mut cp = Checkpoint::new();
         let disabled: Vec<String> = vec![];
-        let mut ctx = ToolCtx { root: &root, disabled_skills: &disabled, checkpoint: &mut cp };
+        let mut ctx = ToolCtx { root: &root, unrestricted: false, disabled_skills: &disabled, checkpoint: &mut cp };
         let out = run("run_command", &json!({"command": "echo hi && exit 3"}), &mut ctx).await;
         assert!(out.is_error);
         assert!(out.content.contains("Exit code 3") && out.content.contains("hi"), "{}", out.content);
@@ -481,8 +521,22 @@ mod tests {
         let root = tmp();
         let mut cp = Checkpoint::new();
         let disabled: Vec<String> = vec![];
-        let mut ctx = ToolCtx { root: &root, disabled_skills: &disabled, checkpoint: &mut cp };
+        let mut ctx = ToolCtx { root: &root, unrestricted: false, disabled_skills: &disabled, checkpoint: &mut cp };
         let out = rt.block_on(run("write_file", &json!({"__invalid": "{\"path\": \"a"}), &mut ctx));
         assert!(out.is_error);
+    }
+}
+
+#[cfg(test)]
+mod anywhere_tests {
+    use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn resolves_anywhere_without_a_boundary() {
+        let base = Path::new("/home/me");
+        assert_eq!(resolve_anywhere(base, "notes.txt").unwrap(), PathBuf::from("/home/me/notes.txt"));
+        assert_eq!(resolve_anywhere(base, "/etc/hosts").unwrap(), PathBuf::from("/etc/hosts"));
+        assert_eq!(resolve_anywhere(base, "../other/x").unwrap(), PathBuf::from("/home/other/x"));
     }
 }

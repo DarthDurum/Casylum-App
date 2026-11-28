@@ -473,9 +473,10 @@ dependencies = [
 
 [[package]]
 name = "casylum"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "dirs 6.0.0",

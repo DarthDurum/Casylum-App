@@ -1,6 +1,6 @@
 [package]
 name = "casylum"
-version = "0.2.1"
+version = "0.2.2"
 description = "Casylum: a calm, fast desktop AI coding agent"
 edition = "2021"
 license = "Apache-2.0"
@@ -32,6 +32,7 @@ portable-pty = "0.9"
 ignore = "0.4"
 regex = "1"
 globset = "0.4"
+base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [profile.release]
