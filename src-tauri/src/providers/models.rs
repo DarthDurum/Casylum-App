@@ -110,7 +110,7 @@ pub async fn list(http: &reqwest::Client, provider: &str, key: Option<String>, b
 }
 
 async fn get_json(rb: reqwest::RequestBuilder, provider: &str) -> Result<Value> {
-    let resp = rb.timeout(std::time::Duration::from_secs(15)).send().await?;
+    let resp = rb.header("Accept", "application/json").timeout(std::time::Duration::from_secs(20)).send().await?;
     Ok(super::check(resp, provider).await?.json().await?)
 }
 
@@ -131,6 +131,7 @@ async fn fetch(http: &reqwest::Client, provider: &str, key: Option<String>, base
             let v = get_json(http.get(format!("{base}/v1beta/models?pageSize=1000")).header("x-goog-api-key", need_key()?), "Gemini").await?;
             parse_gemini(&v)
         }
+        "abacus" => fetch_abacus(http, key, base).await?,
         "cohere" => {
             // Cohere's OpenAI-compatible API has no model list; use the native one.
             let base = std::env::var("CASYLUM_COHERE_BASE").unwrap_or_else(|_| "https://api.cohere.com".into());
@@ -157,6 +158,35 @@ async fn fetch(http: &reqwest::Client, provider: &str, key: Option<String>, base
         }
     };
     Ok(models)
+}
+
+/// Abacus's list is public. Try it with the key, then without (a key it
+/// doesn't like shouldn't hide the list), then Abacus's own API.
+async fn fetch_abacus(http: &reqwest::Client, key: Option<String>, base: Option<String>) -> Result<Vec<ModelInfo>> {
+    let base = std::env::var("CASYLUM_ABACUS_BASE").ok().or(base).unwrap_or_else(|| "https://routellm.abacus.ai/v1".into());
+    let url = format!("{}/models", base.trim_end_matches('/'));
+    let mut first_err = None;
+    let mut tries = vec![];
+    if let Some(k) = key.filter(|k| !k.is_empty()) {
+        tries.push(http.get(&url).bearer_auth(k));
+    }
+    tries.push(http.get(&url));
+    let api = std::env::var("CASYLUM_ABACUS_API").unwrap_or_else(|_| "https://api.abacus.ai".into());
+    tries.push(http.get(format!("{api}/api/v0/listRouteLLMModels")));
+    for rb in tries {
+        match get_json(rb, "Abacus.AI").await {
+            Ok(v) => {
+                let models = parse_compatible(&v);
+                if !models.is_empty() {
+                    return Ok(models);
+                }
+            }
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    Err(first_err.unwrap_or_else(|| anyhow!("Abacus.AI returned no chat models.")))
 }
 
 fn s<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
@@ -250,12 +280,18 @@ fn parse_compatible(v: &Value) -> Vec<ModelInfo> {
     let bare = v.as_array().into_iter().flatten();
     let mut out: Vec<(i64, ModelInfo)> = items(v, "data")
         .chain(items(v, "models"))
+        .chain(items(v, "result"))
         .chain(bare)
         .filter_map(|m| {
             let id = s(m, "id").or_else(|| s(m, "name"))?;
             let typed_chat = s(m, "type").map_or(true, |t| matches!(t, "chat" | "language" | "code" | "llm" | "model" | "vlm"));
+            // Abacus: "text_generation" vs image/audio/classification.
+            let kind_chat = s(m, "model_type").map_or(true, |t| matches!(t, "text_generation" | "chat" | "llm" | "text"));
+            let text_out = m["output_modalities"].as_array().map_or(true, |a| a.iter().any(|x| x == "text"));
             let ok = !non_chat(id)
                 && typed_chat
+                && kind_chat
+                && text_out
                 && m["active"].as_bool() != Some(false)
                 && m["supports_chat"].as_bool() != Some(false)
                 && m["supports_tools"].as_bool() != Some(false);
@@ -387,6 +423,28 @@ mod tests {
             {"id": "black-forest-labs/FLUX.1", "type": "image", "created": 4},
         ]);
         assert_eq!(parse_compatible(&v), vec![ModelInfo { id: "Qwen/Qwen3-Coder".into(), name: Some("Qwen3 Coder".into()) }]);
+    }
+
+    #[test]
+    fn compatible_reads_abacus_lists() {
+        let models = json!([
+            {"id": "route-llm", "display_name": "RouteLLM", "model_type": "text_generation", "output_modalities": ["text"], "tools": true},
+            {"id": "claude-opus-5-5", "display_name": "Claude Opus 5.5", "model_type": "text_generation", "output_modalities": ["text"]},
+            {"id": "flux-2-pro", "display_name": "FLUX.2 Pro", "model_type": "image_generation", "output_modalities": ["image"]},
+            {"id": "gemini-2.5-flash-image", "model_type": "text_generation", "output_modalities": ["text", "image"]},
+            {"id": "gpt-4o-transcribe", "model_type": "text_generation", "output_modalities": ["text"]},
+            {"id": "gpt-audio-1.5", "model_type": "audio_generation", "output_modalities": ["audio"]},
+            {"id": "gemini-decision-1", "model_type": "classification"},
+        ]);
+        let want = vec![
+            ModelInfo { id: "route-llm".into(), name: Some("RouteLLM".into()) },
+            ModelInfo { id: "claude-opus-5-5".into(), name: Some("Claude Opus 5.5".into()) },
+            ModelInfo { id: "gemini-2.5-flash-image".into(), name: None },
+        ];
+        // routellm.abacus.ai/v1/models
+        assert_eq!(parse_compatible(&json!({"data": models})), want);
+        // api.abacus.ai/api/v0/listRouteLLMModels
+        assert_eq!(parse_compatible(&json!({"success": true, "result": models})), want);
     }
 
     #[test]

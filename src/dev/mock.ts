@@ -84,10 +84,10 @@ export function installMock() {
         case "list_providers":
           return [
             { id: "anthropic", name: "Anthropic", needs_key: true, models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"], key_url: "", base_url: "", url_setting: null, local: false, tools: true, has_key: !new URLSearchParams(location.search).has("onboard"), key_hint: "sk-…9f2c" },
-            { id: "openai", name: "OpenAI", needs_key: true, models: ["gpt-5", "gpt-5-mini"], key_url: "", base_url: "", url_setting: null, local: false, tools: true, has_key: false, key_hint: null },
-            { id: "gemini", name: "Google Gemini", needs_key: true, models: ["gemini-2.5-pro"], key_url: "", base_url: "", url_setting: null, local: false, tools: true, has_key: false, key_hint: null },
+            { id: "openai", name: "OpenAI", needs_key: true, models: ["gpt-5", "gpt-5-mini"], key_url: "", base_url: "", url_setting: null, local: false, tools: true, has_key: true, key_hint: null },
+            { id: "gemini", name: "Google Gemini", needs_key: true, models: ["gemini-2.5-pro"], key_url: "", base_url: "", url_setting: null, local: false, tools: true, has_key: true, key_hint: null },
             { id: "openrouter", name: "OpenRouter", needs_key: true, models: [], key_url: "", base_url: "", url_setting: null, local: false, tools: true, has_key: false, key_hint: null },
-            { id: "groq", name: "Groq", needs_key: true, models: ["openai/gpt-oss-120b"], key_url: "", base_url: "https://api.groq.com/openai/v1", url_setting: null, local: false, tools: true, has_key: false, key_hint: null },
+            { id: "groq", name: "Groq", needs_key: true, models: ["openai/gpt-oss-120b"], key_url: "", base_url: "https://api.groq.com/openai/v1", url_setting: null, local: false, tools: true, has_key: true, key_hint: null },
             { id: "perplexity", name: "Perplexity", needs_key: true, models: ["sonar-pro"], key_url: "", base_url: "https://api.perplexity.ai", url_setting: null, local: false, tools: false, has_key: false, key_hint: null },
             { id: "ollama", name: "Ollama (local)", needs_key: false, models: ["qwen3-coder"], key_url: "", base_url: "http://localhost:11434/v1", url_setting: "ollama_base_url", local: true, tools: true, has_key: false, key_hint: null },
           ];
