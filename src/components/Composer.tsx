@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Check, ChevronDown, RefreshCw, Shield, ShieldCheck, ShieldOff, Square } from "lucide-react";
 import type { PermissionMode } from "../lib/api";
-import { modelLabel, type ModelInfo } from "../lib/models";
+import { modelLabel, resolveTypedModel, type ModelInfo } from "../lib/models";
 import { useChat, useStore } from "../store";
 
 const MODES: Record<PermissionMode, { label: string; hint: string; icon: any }> = {
@@ -18,6 +18,7 @@ export function Composer() {
   const update = useStore((s) => s.updateSettings);
   const sessionId = useStore((s) => s.sessionId);
   const providerModels = useStore((s) => (s.settings ? s.models[s.settings.provider]?.models : undefined));
+  const providerName = useStore((s) => s.providers.find((p) => p.id === s.settings?.provider)?.name);
   const [text, setText] = useState("");
   const [menu, setMenu] = useState<null | "model" | "mode">(null);
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -102,8 +103,9 @@ export function Composer() {
           </div>
           <div className="composer-end">
             <div className="menu-anchor" onClick={(e) => e.stopPropagation()}>
-              <button className="pill" onClick={() => setMenu(menu === "model" ? null : "model")} title={`Choose model (${settings.model})`}>
+              <button className="pill" onClick={() => setMenu(menu === "model" ? null : "model")} title={`Choose model (${providerName ?? settings.provider}: ${settings.model})`}>
                 {modelLabel(settings.model, providerModels)}
+                {providerName && <span className="pill-sub">{providerName}</span>}
                 <ChevronDown size={12} />
               </button>
               {menu === "model" && <ModelMenu close={() => setMenu(null)} />}
@@ -152,7 +154,11 @@ function ModelMenu({ close }: { close: () => void }) {
         className="menu-search"
         onSubmit={(e) => {
           e.preventDefault();
-          if (query.trim()) pick(settings.provider, query.trim());
+          if (!query.trim()) return;
+          // Send the model to the provider that lists it, not whichever one is active.
+          const lists = usable.map((p) => ({ provider: p.id, models: models[p.id]?.models ?? p.models.map((id) => ({ id })) }));
+          const r = resolveTypedModel(query, lists, settings.provider);
+          pick(r.provider, r.model);
         }}
       >
         <input autoFocus placeholder="Search models, or type a model id…" value={query} onChange={(e) => setQuery(e.target.value)} />
