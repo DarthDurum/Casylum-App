@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  BookOpen, Check, ChevronRight, FilePen, FilePlus2, FolderTree, ListChecks, Loader2, Search, Sparkles, SquareTerminal, X, ShieldQuestion,
+  BookOpen, Check, ChevronRight, FilePen, FilePlus2, FolderTree, ListChecks, Loader2, Search, Sparkles, SquareTerminal, X, ShieldQuestion, Plug,
 } from "lucide-react";
 import type { ToolResult, ToolUse } from "../lib/steps";
 import { stepLabel } from "../lib/steps";
@@ -23,7 +23,7 @@ export function StepCard({ tool, result, active, approval }: { tool: ToolUse; re
   const [open, setOpen] = useState(false);
   const decide = useStore((s) => s.decide);
   const showFile = useStore((s) => s.showFile);
-  const Icon = ICONS[tool.name] ?? Sparkles;
+  const Icon = ICONS[tool.name] ?? (tool.name.startsWith("mcp__") ? Plug : Sparkles);
   const { verb, target, extra } = stepLabel(tool, result);
   const status = approval ? "ask" : result ? (result.is_error ? "error" : "done") : active ? "running" : "queued";
   const isDiff = result?.meta?.kind === "diff";

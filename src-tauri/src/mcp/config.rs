@@ -254,6 +254,61 @@ pub fn set_disabled(name: &str, disabled: bool) -> Result<()> {
     save_value(&root)
 }
 
+/// Config files from other apps whose servers can be imported.
+fn other_configs() -> Vec<(&'static str, PathBuf)> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut out = vec![];
+    // Claude Desktop
+    #[cfg(target_os = "macos")]
+    out.push(("Claude Desktop", home.join("Library/Application Support/Claude/claude_desktop_config.json")));
+    #[cfg(windows)]
+    if let Some(d) = dirs::config_dir() {
+        out.push(("Claude Desktop", d.join("Claude").join("claude_desktop_config.json")));
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    out.push(("Claude Desktop", home.join(".config/Claude/claude_desktop_config.json")));
+    out.push(("Claude Code", home.join(".claude.json")));
+    out.push(("Cursor", home.join(".cursor/mcp.json")));
+    out.push(("Windsurf", home.join(".codeium/windsurf/mcp_config.json")));
+    out
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ImportReport {
+    pub added: Vec<String>,
+    pub skipped: Vec<String>,
+    pub sources: Vec<String>,
+}
+
+/// Copy servers from Claude Desktop, Claude Code, Cursor and Windsurf into
+/// Casylum's config. Servers whose name is already used are left alone.
+pub fn import_from_apps() -> Result<ImportReport> {
+    let mut root = load_value()?;
+    let mut report = ImportReport { added: vec![], skipped: vec![], sources: vec![] };
+    for (app, path) in other_configs() {
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
+        let Some(found) = v.get("mcpServers").and_then(|m| m.as_object()) else { continue };
+        if found.is_empty() {
+            continue;
+        }
+        report.sources.push(app.to_string());
+        let servers = root["mcpServers"].as_object_mut().expect("normalised");
+        for (name, server) in found {
+            if servers.contains_key(name) || parse_server(name, server).is_err() {
+                report.skipped.push(name.clone());
+                continue;
+            }
+            servers.insert(name.clone(), server.clone());
+            report.added.push(name.clone());
+        }
+    }
+    if !report.added.is_empty() {
+        save_value(&root)?;
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

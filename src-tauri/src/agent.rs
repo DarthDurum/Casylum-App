@@ -357,6 +357,10 @@ async fn drive(
     emit(app, AgentEvent::Message { session_id: sid.clone(), message: session.messages.last().unwrap().clone() });
 
     let group = session.project_id.as_deref().and_then(crate::projects::get);
+    tokio::select! {
+        _ = mcp.wait_ready(std::time::Duration::from_secs(15)) => {}
+        _ = cancel.cancelled() => {}
+    }
     let mut checkpoint: Checkpoint = HashMap::new();
     let mut always: HashSet<String> = HashSet::new();
 

@@ -15,7 +15,10 @@ A calm, fast desktop AI coding agent. Bring your own API keys, open a folder, an
 - **Agent with real tools:** read, list, search (ripgrep engine), edit and create files, run commands, keep a live plan, load skills.
 - **You stay in control:** three permission modes (Ask first, Auto-edit, Full auto), inline approve or deny with a preview of the exact diff or command, a Stop button that leaves the conversation in a clean state, and **Undo this run** to restore every file the agent touched.
 - **Calm workspace:** tidy step cards instead of log walls, a side panel for Plan, Changes (diffs), Files and Terminal, a command palette (`Ctrl/Cmd+K`), dark and light themes.
-- **Skills:** folders with a `SKILL.md` (name + description frontmatter), compatible with Claude Code-style skills. Only descriptions go into the prompt; the agent loads a skill's full instructions when a task needs it. Manage them in the Skills panel.
+- **MCP servers:** connect Model Context Protocol servers, local (stdio: `npx`, `uvx`, `docker`, ...) or remote (Streamable HTTP, with automatic fallback to legacy SSE). Their tools reach the agent as `mcp__<server>__<tool>` with every provider that supports tool calling. The config is the same `mcpServers` JSON Claude Desktop and Claude Code use, so you can paste yours, or import it in one click from Claude Desktop, Claude Code, Cursor or Windsurf. Manage servers in Settings > MCP servers (status, tools, logs, reconnect). Tools the server marks read-only run without asking; others follow your permission mode unless you set the server to auto-approve.
+  - Config file: `mcp.json` in the app's config folder. Extra keys: `"disabled": true`, `"autoApprove": true` (or a list of tool names), `"timeout"` (seconds per call), `"cwd"`. `${VAR}` and `${VAR:-default}` read environment variables.
+- **Projects:** group chats under a project with an optional folder (new chats start there) and instructions the agent follows in every chat of the project. Move a chat between projects from the chat header.
+- **Skills:** folders with a `SKILL.md` (name + description frontmatter), compatible with Claude Code-style skills. Only descriptions go into the prompt; the agent loads a skill's full instructions when a task needs it. Manage them in Settings > Skills, and install skill packages from a `.zip` or `.skill` file (one skill or many per archive).
   - Global: `~/.casylum/skills/<name>/SKILL.md`
   - Per project: `<project>/.casylum/skills/<name>/SKILL.md`
 - **Project instructions:** a `CASYLUM.md`, `AGENTS.md` or `CLAUDE.md` at the project root is added to the agent's instructions.
@@ -71,12 +74,14 @@ src-tauri/src/
   agent.rs        agent loop, approvals, sessions, undo checkpoints
   providers/      anthropic.rs, openai.rs (every OpenAI-compatible provider), gemini.rs, SSE reader
   tools.rs        read/list/search/write/edit/run/plan/skill tools, sandboxed to the project
-  skills.rs       skill discovery, loading and editing
+  skills.rs       skill discovery, loading, editing and .zip import
+  mcp/            MCP client (stdio, Streamable HTTP, SSE), server manager, mcp.json config
+  projects.rs     projects: groups of chats with a folder and instructions
   keys.rs         OS keychain storage
   terminal.rs     PTY-backed terminal
   settings.rs     non-secret settings
 src/
-  components/     Rail, Chat, StepCard, Composer, ContextPanel, Settings, Skills, Palette, Onboarding
+  components/     Rail, Chat, StepCard, Composer, ContextPanel, Settings, Skills, Mcp, ProjectModal, Palette, Onboarding
   store.ts        app state and agent event handling
   lib/            typed IPC bridge, editor theme, step helpers
 ```

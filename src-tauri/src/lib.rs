@@ -427,6 +427,14 @@ fn mcp_set_enabled(st: State<'_, App>, name: String, enabled: bool) -> Res<()> {
     Ok(())
 }
 
+/// Bring in servers from Claude Desktop, Claude Code, Cursor or Windsurf.
+#[tauri::command]
+fn mcp_import_apps(st: State<'_, App>) -> Res<mcp::config::ImportReport> {
+    let r = mcp::config::import_from_apps().map_err(e)?;
+    st.mcp.sync();
+    Ok(r)
+}
+
 #[tauri::command]
 fn mcp_restart(st: State<'_, App>, name: String) {
     st.mcp.restart(&name);
@@ -521,6 +529,7 @@ pub fn run() {
             mcp_remove_server,
             mcp_set_enabled,
             mcp_restart,
+            mcp_import_apps,
             mcp_logs,
             set_messages,
             set_session_project,

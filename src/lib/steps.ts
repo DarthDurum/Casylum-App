@@ -34,9 +34,28 @@ export function stepLabel(t: ToolUse, r?: ToolResult): { verb: string; target: s
       return { verb: "Updated", target: "plan" };
     case "use_skill":
       return { verb: "Loaded skill", target: i.name ?? "" };
-    default:
+    default: {
+      const mcp = mcpParts(t.name, r);
+      if (mcp) return { verb: mcp.tool.replace(/_/g, " "), target: firstArg(i), extra: mcp.server };
       return { verb: t.name, target: "" };
+    }
   }
+}
+
+/** Server and tool of an MCP tool call (`mcp__<server>__<tool>`). */
+export function mcpParts(name: string, r?: ToolResult): { server: string; tool: string } | null {
+  if (!name.startsWith("mcp__")) return null;
+  if (r?.meta?.kind === "mcp") return { server: r.meta.server, tool: r.meta.tool };
+  const rest = name.slice(5);
+  const i = rest.indexOf("__");
+  return i < 0 ? { server: rest, tool: rest } : { server: rest.slice(0, i), tool: rest.slice(i + 2) };
+}
+
+/** A short hint of what an MCP call is about: its first string argument. */
+function firstArg(input: any): string {
+  if (!input || typeof input !== "object") return "";
+  for (const v of Object.values(input)) if (typeof v === "string" && v.trim()) return short(v.replace(/\s+/g, " "), 56);
+  return "";
 }
 
 export interface PlanItem {

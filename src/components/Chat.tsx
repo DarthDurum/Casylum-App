@@ -24,6 +24,7 @@ export function Chat() {
     <main className="chat">
       <header className="chat-head" data-tauri-drag-region="deep">
         <div className="chat-title">
+          <ProjectCrumb />
           <span className="crumb">{project ? basename(project) : "No folder"}</span>
           <span className="crumb-sep">/</span>
           <span className="title-text">{sessionId ? title : "New chat"}</span>
@@ -42,6 +43,60 @@ export function Chat() {
       <Conversation />
       <Composer />
     </main>
+  );
+}
+
+/** The chat's project, with a menu to move the chat to another one. */
+function ProjectCrumb() {
+  const sessionId = useStore((s) => s.sessionId);
+  const projects = useStore((s) => s.projects);
+  const groupId = useStore((s) => s.sessions.find((x) => x.id === s.sessionId)?.project_id ?? null);
+  const running = useChat().running;
+  const [menu, setMenu] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setMenu(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menu]);
+  if (!sessionId || (!projects.length && !groupId)) return null;
+  const group = projects.find((p) => p.id === groupId);
+  const move = (id: string | null) => {
+    setMenu(false);
+    void useStore.getState().moveToProject(sessionId, id);
+  };
+  return (
+    <span className="menu-anchor crumb-anchor" ref={ref}>
+      <button className={`crumb crumb-btn ${group ? "" : "faint"}`} onClick={() => setMenu((m) => !m)} disabled={running} title={running ? "Wait for this chat to finish" : "Move this chat to a project"}>
+        {group ? group.name : "No project"}
+        <ChevronDown size={12} />
+      </button>
+      {menu && (
+        <div className="menu down crumb-menu">
+          <div className="menu-label">Move chat to</div>
+          {projects.map((p) => (
+            <button key={p.id} className="menu-item" onClick={() => move(p.id)}>
+              <FolderOpen size={14} /> <span className="mi-text">{p.name}</span>
+              {p.id === groupId && <Check size={14} />}
+            </button>
+          ))}
+          <button className="menu-item subtle" onClick={() => move(null)}>
+            No project {!group && <Check size={14} />}
+          </button>
+          <button
+            className="menu-item subtle"
+            onClick={() => {
+              setMenu(false);
+              useStore.getState().editProject(null);
+            }}
+          >
+            New project…
+          </button>
+        </div>
+      )}
+      <span className="crumb-sep">/</span>
+    </span>
   );
 }
 

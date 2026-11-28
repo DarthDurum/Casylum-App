@@ -508,7 +508,8 @@ impl Client {
             // End the server-side session; best effort.
             if let Some(s) = session.lock().take() {
                 let rb = self.http.delete(url).headers(header_map(headers)).header("Mcp-Session-Id", s);
-                tokio::spawn(async move {
+                // Runs at app exit too, outside any Tokio context.
+                tauri::async_runtime::spawn(async move {
                     let _ = rb.timeout(Duration::from_secs(5)).send().await;
                 });
             }

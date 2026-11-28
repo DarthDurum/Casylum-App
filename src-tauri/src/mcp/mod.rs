@@ -424,6 +424,15 @@ impl Manager {
         }
     }
 
+    /// Give servers that are still starting a moment, so the first message
+    /// of a session can use their tools.
+    pub async fn wait_ready(&self, max: Duration) {
+        let start = std::time::Instant::now();
+        while start.elapsed() < max && self.servers.lock().values().any(|s| s.status == Status::Connecting) {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
     /// Restart a server (after it crashed, or to pick up a new version).
     pub fn restart(self: &Arc<Self>, name: &str) {
         self.start(name);

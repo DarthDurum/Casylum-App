@@ -4,13 +4,26 @@ import { api, type Provider } from "../lib/api";
 import { useStore } from "../store";
 import { Modal } from "./Modal";
 import { useUpdates } from "../lib/updates";
+import { SkillsPane } from "./Skills";
+import { McpPane } from "./Mcp";
+import type { SettingsTab } from "../store";
+
+const TABS: Array<[SettingsTab, string]> = [
+  ["providers", "Providers & keys"],
+  ["mcp", "MCP servers"],
+  ["skills", "Skills"],
+  ["general", "General"],
+];
 
 export function SettingsModal() {
   const setModal = useStore((s) => s.setModal);
   const providers = useStore((s) => s.providers);
   const settings = useStore((s) => s.settings)!;
   const update = useStore((s) => s.updateSettings);
-  const [tab, setTab] = useState<"providers" | "general">("providers");
+  const tab = useStore((s) => s.settingsTab);
+  const setTab = (t: SettingsTab) => useStore.setState({ settingsTab: t });
+  // Skill and JSON editors fill the page instead of scrolling with it.
+  const [flush, setFlush] = useState(false);
   const [filter, setFilter] = useState("");
   const f = filter.trim().toLowerCase();
   // Connected providers first, then the rest in catalog order.
@@ -22,14 +35,22 @@ export function SettingsModal() {
     <Modal title="Settings" onClose={() => setModal(null)} wide>
       <div className="settings">
         <nav className="settings-nav">
-          <button className={tab === "providers" ? "on" : ""} onClick={() => setTab("providers")}>
-            Providers & keys
-          </button>
-          <button className={tab === "general" ? "on" : ""} onClick={() => setTab("general")}>
-            General
-          </button>
+          {TABS.map(([t, label]) => (
+            <button
+              key={t}
+              className={tab === t ? "on" : ""}
+              onClick={() => {
+                setFlush(false);
+                setTab(t);
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </nav>
-        <div className="settings-main">
+        <div className={`settings-main ${flush && (tab === "skills" || tab === "mcp") ? "flush" : ""}`}>
+          {tab === "skills" && <SkillsPane onEditing={setFlush} />}
+          {tab === "mcp" && <McpPane onEditing={setFlush} />}
           {tab === "providers" && (
             <>
               <p className="muted lock-note">

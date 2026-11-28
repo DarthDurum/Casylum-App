@@ -3,7 +3,9 @@ import {
   api,
   type AgentEvent,
   type Attachment,
+  type McpServer,
   type Message,
+  type Project,
   type Provider,
   type RunInfo,
   type SessionSummary,
@@ -39,7 +41,8 @@ export interface ChatState {
 }
 
 export type PanelTab = "plan" | "changes" | "files" | "terminal";
-export type Modal = null | "settings" | "skills" | "palette";
+export type Modal = null | "settings" | "palette" | "project";
+export type SettingsTab = "providers" | "general" | "skills" | "mcp";
 
 const emptyChat = (): ChatState => ({
   messages: [],
@@ -69,6 +72,11 @@ interface Store {
   panel: PanelTab;
   panelOpen: boolean;
   modal: Modal;
+  settingsTab: SettingsTab;
+  /** The project being edited in the project dialog; null creates one. */
+  editingProject: string | null;
+  projects: Project[];
+  mcpServers: McpServer[];
   focusFile: string | null;
   toast: string | null;
 
@@ -82,7 +90,15 @@ interface Store {
   openProject(path: string): Promise<void>;
   closeProject(path: string): Promise<void>;
   refreshSessions(): Promise<void>;
-  newChat(): Promise<string | null>;
+  /** Start a chat, inside a project when one is given. */
+  newChat(projectId?: string | null): Promise<string | null>;
+  refreshProjects(): Promise<void>;
+  /** Open the project dialog: an id edits that project, null creates one. */
+  editProject(id: string | null): void;
+  /** Move a chat into a project, or out with null. */
+  moveToProject(sessionId: string, projectId: string | null): Promise<void>;
+  openSettings(tab: SettingsTab): void;
+  refreshMcp(): Promise<void>;
   selectSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
   send(text: string, attachments?: Attachment[]): Promise<void>;
@@ -174,6 +190,10 @@ export const useStore = create<Store>((set, get) => {
     panel: "plan",
     panelOpen: true,
     modal: null,
+    settingsTab: "providers",
+    editingProject: null,
+    projects: [],
+    mcpServers: [],
     focusFile: null,
     toast: null,
 
@@ -181,6 +201,8 @@ export const useStore = create<Store>((set, get) => {
       const [settings, providers, running] = await Promise.all([api.getSettings(), api.listProviders(), api.running()]);
       document.documentElement.dataset.theme = settings.theme;
       set({ settings, providers, project: null, ready: true });
+      void get().refreshProjects();
+      void get().refreshMcp();
       for (const sid of running) patchChat(sid, () => ({ running: true }));
       loadUsableModels();
       await get().refreshSessions();
@@ -235,14 +257,52 @@ export const useStore = create<Store>((set, get) => {
       set({ sessions: await api.listSessions() });
     },
 
-    async newChat() {
-      const { project, settings } = get();
+    async newChat(projectId = null) {
+      const { settings } = get();
       if (!settings) return null;
-      const s = await api.createSession(project ?? "", settings.provider, settings.model);
+      // A chat in a project starts in the project's folder.
+      const group = projectId ? get().projects.find((p) => p.id === projectId) : undefined;
+      const folder = group ? group.folder : get().project ?? "";
+      const s = await api.createSession(folder, settings.provider, settings.model, group?.id ?? null);
+      set({ project: folder || null });
       patchChat(s.id, () => emptyChat());
       set({ sessionId: s.id });
       await get().refreshSessions();
       return s.id;
+    },
+
+    async refreshProjects() {
+      try {
+        set({ projects: await api.projectsList() });
+      } catch {
+        /* older core */
+      }
+    },
+
+    editProject(id) {
+      set({ editingProject: id, modal: "project" });
+    },
+
+    async moveToProject(sessionId, projectId) {
+      try {
+        const s = await api.setSessionGroup(sessionId, projectId);
+        set((st) => ({ sessions: st.sessions.map((x) => (x.id === sessionId ? { ...x, project_id: s.project_id ?? null, project: s.project } : x)) }));
+        if (get().sessionId === sessionId) set({ project: s.project || null });
+      } catch (e) {
+        get().notify(String(e));
+      }
+    },
+
+    openSettings(tab) {
+      set({ settingsTab: tab, modal: "settings" });
+    },
+
+    async refreshMcp() {
+      try {
+        set({ mcpServers: await api.mcpStatus() });
+      } catch {
+        /* older core */
+      }
     },
 
     async selectSession(id) {
