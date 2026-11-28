@@ -50,6 +50,60 @@ fn to_wire(messages: &[Message]) -> Vec<Value> {
         .collect()
 }
 
+/// Gemini takes an OpenAPI subset of JSON Schema and rejects unknown keys
+/// (`$schema`, `additionalProperties`, ...), which MCP servers often send.
+/// Keep only what it understands.
+pub fn clean_schema(v: &Value) -> Value {
+    const KEEP: &[&str] = &[
+        "type", "format", "description", "nullable", "enum", "items", "properties", "required", "anyOf",
+        "minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "title",
+    ];
+    let Some(obj) = v.as_object() else { return v.clone() };
+    let mut out = serde_json::Map::new();
+    for (k, val) in obj {
+        if !KEEP.contains(&k.as_str()) {
+            continue;
+        }
+        let val = match k.as_str() {
+            "properties" => match val.as_object() {
+                Some(props) => Value::Object(props.iter().map(|(n, p)| (n.clone(), clean_schema(p))).collect()),
+                None => continue,
+            },
+            "items" => clean_schema(val),
+            "anyOf" => match val.as_array() {
+                Some(a) => Value::Array(a.iter().map(clean_schema).collect()),
+                None => continue,
+            },
+            // ["string", "null"] -> "string" + nullable
+            "type" => match val.as_array() {
+                Some(a) => {
+                    if a.iter().any(|t| t == "null") {
+                        out.insert("nullable".into(), Value::Bool(true));
+                    }
+                    a.iter().find(|t| *t != "null").cloned().unwrap_or(Value::String("string".into()))
+                }
+                None => val.clone(),
+            },
+            "enum" => match val.as_array() {
+                // Gemini only allows string enums.
+                Some(a) => Value::Array(a.iter().map(|x| Value::String(x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string()))).collect()),
+                None => continue,
+            },
+            _ => val.clone(),
+        };
+        out.insert(k.clone(), val);
+    }
+    // An object with no properties must not list required fields.
+    if out.get("type") == Some(&Value::String("object".into())) {
+        let props: Vec<String> = out.get("properties").and_then(|p| p.as_object()).map(|p| p.keys().cloned().collect()).unwrap_or_default();
+        if let Some(req) = out.get("required").and_then(|r| r.as_array()) {
+            let kept: Vec<Value> = req.iter().filter(|r| r.as_str().is_some_and(|r| props.iter().any(|p| p == r))).cloned().collect();
+            out.insert("required".into(), Value::Array(kept));
+        }
+    }
+    Value::Object(out)
+}
+
 pub async fn stream(
     http: &reqwest::Client,
     key: &str,
@@ -59,7 +113,7 @@ pub async fn stream(
     let decls: Vec<Value> = req
         .tools
         .iter()
-        .map(|t| json!({"name": t.name, "description": t.description, "parameters": t.schema}))
+        .map(|t| json!({"name": t.name, "description": t.description, "parameters": clean_schema(&t.schema)}))
         .collect();
     let mut body = json!({
         "systemInstruction": {"parts": [{"text": req.system}]},
@@ -137,4 +191,22 @@ pub async fn stream(
         _ => StopReason::EndTurn,
     };
     Ok(Turn { content, stop, usage })
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use serde_json::json;
+
+    #[test]
+    fn cleans_mcp_schema_for_gemini() {
+        let s = json!({"$schema": "x", "type": "object", "additionalProperties": false,
+            "properties": {"q": {"type": ["string", "null"], "default": "a"}, "n": {"type": "integer", "enum": [1, 2]}},
+            "required": ["q", "missing"]});
+        let c = super::clean_schema(&s);
+        assert!(c.get("$schema").is_none() && c.get("additionalProperties").is_none());
+        assert_eq!(c["properties"]["q"]["type"], "string");
+        assert_eq!(c["properties"]["q"]["nullable"], true);
+        assert_eq!(c["properties"]["n"]["enum"], json!(["1", "2"]));
+        assert_eq!(c["required"], json!(["q"]));
+    }
 }

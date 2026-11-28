@@ -138,8 +138,146 @@ pub fn delete(dir: &str) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct Imported {
+    pub name: String,
+    pub dir: String,
+    /// A skill with this name was already there and has been replaced.
+    pub replaced: bool,
+}
+
+fn folder_name(raw: &str) -> String {
+    let mut s: String = raw.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    while s.contains("--") {
+        s = s.replace("--", "-");
+    }
+    let s = s.trim_matches('-').chars().take(64).collect::<String>();
+    s
+}
+
+const MAX_ZIP_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_ZIP_FILES: usize = 5000;
+
+/// Install skills from a .zip (or Claude's .skill, which is a zip). The
+/// archive may hold one skill at its root, one skill folder, or several.
+pub fn import_zip(zip_path: &str, scope: &str, project_root: Option<&str>) -> Result<Vec<Imported>> {
+    use std::io::Read;
+    let base = match scope {
+        "project" => project_dir(project_root.filter(|r| !r.is_empty()).ok_or_else(|| anyhow!("Choose a folder for this chat first to add project skills."))?),
+        _ => global_dir(),
+    };
+    let file = std::fs::File::open(zip_path)?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| anyhow!("Not a valid zip file: {e}"))?;
+    if zip.len() > MAX_ZIP_FILES {
+        return Err(anyhow!("The zip has too many files ({}).", zip.len()));
+    }
+    // Every file, with a safe relative path.
+    let mut entries: Vec<(usize, PathBuf)> = vec![];
+    let mut total = 0u64;
+    for i in 0..zip.len() {
+        let f = zip.by_index(i)?;
+        let Some(p) = f.enclosed_name() else { continue };
+        if f.is_dir() || p.components().any(|c| c.as_os_str() == "__MACOSX") || p.file_name().is_some_and(|n| n == ".DS_Store") {
+            continue;
+        }
+        total += f.size();
+        if total > MAX_ZIP_BYTES {
+            return Err(anyhow!("The zip is too large once unpacked (over 100 MB)."));
+        }
+        entries.push((i, p));
+    }
+    // Skill roots: folders holding a SKILL.md, shallowest first.
+    let mut roots: Vec<(usize, PathBuf)> = entries
+        .iter()
+        .filter(|(_, p)| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("SKILL.md")))
+        .map(|(i, p)| (*i, p.parent().map(Path::to_path_buf).unwrap_or_default()))
+        .collect();
+    roots.sort_by_key(|(_, p)| p.components().count());
+    let mut kept: Vec<(usize, PathBuf)> = vec![];
+    for r in roots {
+        if !kept.iter().any(|(_, k)| r.1.starts_with(k)) {
+            kept.push(r);
+        }
+    }
+    if kept.is_empty() {
+        return Err(anyhow!("No SKILL.md found in this file."));
+    }
+    let stem = Path::new(zip_path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into());
+    let mut out = vec![];
+    for (md_index, root) in kept {
+        let mut text = String::new();
+        zip.by_index(md_index)?.read_to_string(&mut text).map_err(|e| anyhow!("SKILL.md isn't readable text: {e}"))?;
+        let (name, _, _) = parse(&text);
+        let fallback = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| stem.clone());
+        let folder = name.as_deref().map(folder_name).filter(|n| !n.is_empty()).unwrap_or_else(|| folder_name(&fallback));
+        if !valid_name(&folder) {
+            return Err(anyhow!("Couldn't work out a name for the skill in {}.", root.display()));
+        }
+        let dir = base.join(&folder);
+        let replaced = dir.exists();
+        if replaced {
+            if !dir.join("SKILL.md").is_file() {
+                return Err(anyhow!("{} exists and isn't a skill; not replacing it.", dir.display()));
+            }
+            std::fs::remove_dir_all(&dir)?;
+        }
+        std::fs::create_dir_all(&dir)?;
+        for (i, p) in &entries {
+            let Ok(rel) = p.strip_prefix(&root) else { continue };
+            // Only files inside this skill (not a nested skill's own root).
+            let target = dir.join(rel);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut f = zip.by_index(*i)?;
+            let mut w = std::fs::File::create(&target)?;
+            std::io::copy(&mut f, &mut w)?;
+        }
+        // Keep the canonical file name even if the zip used another case.
+        let md = dir.join("SKILL.md");
+        if !md.is_file() {
+            std::fs::write(&md, &text)?;
+        }
+        out.push(Imported { name: name.unwrap_or(folder), dir: dir.to_string_lossy().to_string(), replaced });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn imports_skills_from_zip() {
+        use std::io::Write;
+        let tmp = std::env::temp_dir().join(format!("casylum-zip-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let zp = tmp.join("pack.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&zp).unwrap());
+            let o = zip::write::SimpleFileOptions::default();
+            z.start_file("pack/pdf-tools/SKILL.md", o).unwrap();
+            z.write_all(b"---\nname: pdf-tools\ndescription: Work with PDFs\n---\nBody").unwrap();
+            z.start_file("pack/pdf-tools/scripts/run.py", o).unwrap();
+            z.write_all(b"print(1)").unwrap();
+            z.start_file("pack/other/SKILL.md", o).unwrap();
+            z.write_all(b"no frontmatter").unwrap();
+            z.start_file("__MACOSX/pack/._x", o).unwrap();
+            z.write_all(b"junk").unwrap();
+            z.finish().unwrap();
+        }
+        let project = tmp.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let got = super::import_zip(&zp.to_string_lossy(), "project", Some(&project.to_string_lossy())).unwrap();
+        assert_eq!(got.len(), 2);
+        let skills = super::project_dir(&project.to_string_lossy());
+        assert!(skills.join("pdf-tools/scripts/run.py").is_file());
+        assert!(skills.join("other/SKILL.md").is_file());
+        assert!(!got[0].replaced);
+        // Importing again replaces.
+        let again = super::import_zip(&zp.to_string_lossy(), "project", Some(&project.to_string_lossy())).unwrap();
+        assert!(again.iter().all(|i| i.replaced));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn parses_frontmatter() {
         let (n, d, b) = super::parse("---\nname: deploy\ndescription: \"Ship it safely\"\n---\n\n# Steps\n1. go");
