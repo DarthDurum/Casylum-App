@@ -25,6 +25,7 @@ pub struct Settings {
     pub theme: String,
     pub ollama_base_url: String,
     pub custom_base_url: String,
+    pub lmstudio_base_url: String,
     pub recent_projects: Vec<String>,
     /// Skills switched off, as "<scope>:<name>".
     pub disabled_skills: Vec<String>,
@@ -41,9 +42,22 @@ impl Default for Settings {
             theme: "dark".into(),
             ollama_base_url: "http://localhost:11434/v1".into(),
             custom_base_url: String::new(),
+            lmstudio_base_url: "http://localhost:1234/v1".into(),
             recent_projects: vec![],
             disabled_skills: vec![],
             auto_update: true,
+        }
+    }
+}
+
+impl Settings {
+    /// A user-set base URL by its settings field name.
+    pub fn base_url(&self, field: &str) -> String {
+        match field {
+            "ollama_base_url" => self.ollama_base_url.clone(),
+            "lmstudio_base_url" => self.lmstudio_base_url.clone(),
+            "custom_base_url" => self.custom_base_url.clone(),
+            _ => String::new(),
         }
     }
 }

@@ -126,33 +126,35 @@ async fn fetch(http: &reqwest::Client, provider: &str, key: Option<String>, base
             .await?;
             parse_anthropic(&v)
         }
-        "openai" => {
-            let base = std::env::var("CASYLUM_OPENAI_BASE").unwrap_or_else(|_| "https://api.openai.com/v1".into());
-            let v = get_json(http.get(format!("{base}/models")).bearer_auth(need_key()?), "OpenAI").await?;
-            parse_openai(&v)
-        }
         "gemini" => {
             let base = std::env::var("CASYLUM_GEMINI_BASE").unwrap_or_else(|_| "https://generativelanguage.googleapis.com".into());
             let v = get_json(http.get(format!("{base}/v1beta/models?pageSize=1000")).header("x-goog-api-key", need_key()?), "Gemini").await?;
             parse_gemini(&v)
         }
-        "openrouter" => {
-            let base = std::env::var("CASYLUM_OPENROUTER_BASE").unwrap_or_else(|_| "https://openrouter.ai/api/v1".into());
-            let mut rb = http.get(format!("{base}/models"));
-            if let Some(k) = &key {
-                rb = rb.bearer_auth(k);
-            }
-            parse_openrouter(&get_json(rb, "OpenRouter").await?)
+        "cohere" => {
+            // Cohere's OpenAI-compatible API has no model list; use the native one.
+            let base = std::env::var("CASYLUM_COHERE_BASE").unwrap_or_else(|_| "https://api.cohere.com".into());
+            let v = get_json(http.get(format!("{base}/v1/models?endpoint=chat&page_size=1000")).bearer_auth(need_key()?), "Cohere").await?;
+            parse_cohere(&v)
         }
-        "ollama" | "custom" => {
-            let base = base.filter(|b| !b.is_empty()).ok_or_else(|| anyhow!("Set a base URL for {provider} in Settings."))?;
+        id => {
+            let info = super::info(id).ok_or_else(|| anyhow!("Unknown provider: {id}"))?;
+            let env = std::env::var(format!("CASYLUM_{}_BASE", id.to_uppercase())).ok();
+            let base = env.or(base).filter(|b| !b.is_empty()).ok_or_else(|| anyhow!("Set a base URL for {} in Settings.", info.name))?;
             let mut rb = http.get(format!("{}/models", base.trim_end_matches('/')));
-            if let Some(k) = &key {
+            // OpenRouter lists models without a key; everyone else needs one.
+            let key = if info.needs_key && id != "openrouter" { Some(need_key()?) } else { key.clone() };
+            if let Some(k) = key.filter(|k| !k.is_empty()) {
                 rb = rb.bearer_auth(k);
             }
-            parse_compatible(&get_json(rb, provider).await?)
+            let v = get_json(rb, info.name).await?;
+            match id {
+                "openai" => parse_openai(&v),
+                "openrouter" => parse_openrouter(&v),
+                "mistral" => parse_mistral(&v),
+                _ => parse_compatible(&v),
+            }
         }
-        other => return Err(anyhow!("Unknown provider: {other}")),
     };
     Ok(models)
 }
@@ -230,16 +232,70 @@ fn parse_openrouter(v: &Value) -> Vec<ModelInfo> {
     )
 }
 
+/// Words in ids of models that can't chat: embeddings, speech, images,
+/// safety classifiers.
+fn non_chat(id: &str) -> bool {
+    const SKIP: &[&str] = &[
+        "embed", "whisper", "tts", "guard", "rerank", "moderation", "transcribe", "dall-e", "imagen", "image-gen", "flux", "stable-diffusion",
+        "sdxl", "playai", "orpheus", "speech", "ocr", "bge-", "-audio", "audio-",
+    ];
+    let id = id.to_lowercase();
+    SKIP.iter().any(|w| id.contains(w))
+}
+
+/// Any OpenAI-shaped list: `{data: [...]}`, `{models: [...]}` or a bare array
+/// (Together). Providers that describe their models (type, tool support,
+/// active) are filtered on that.
 fn parse_compatible(v: &Value) -> Vec<ModelInfo> {
-    let mut out: Vec<ModelInfo> = items(v, "data")
+    let bare = v.as_array().into_iter().flatten();
+    let mut out: Vec<(i64, ModelInfo)> = items(v, "data")
         .chain(items(v, "models"))
+        .chain(bare)
         .filter_map(|m| {
             let id = s(m, "id").or_else(|| s(m, "name"))?;
-            (!id.contains("embed")).then(|| ModelInfo { id: id.into(), name: None })
+            let typed_chat = s(m, "type").map_or(true, |t| matches!(t, "chat" | "language" | "code" | "llm" | "model" | "vlm"));
+            let ok = !non_chat(id)
+                && typed_chat
+                && m["active"].as_bool() != Some(false)
+                && m["supports_chat"].as_bool() != Some(false)
+                && m["supports_tools"].as_bool() != Some(false);
+            let name = s(m, "display_name").filter(|n| *n != id).map(String::from);
+            ok.then(|| (m["created"].as_i64().unwrap_or(0), ModelInfo { id: id.into(), name }))
         })
         .collect();
-    out.dedup_by(|a, b| a.id == b.id);
-    out
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|(_, m)| seen.insert(m.id.clone()));
+    // Keep the provider's order unless it gives creation times.
+    if out.iter().any(|(c, _)| *c > 0) {
+        by_created(out)
+    } else {
+        out.into_iter().map(|(_, m)| m).collect()
+    }
+}
+
+fn parse_mistral(v: &Value) -> Vec<ModelInfo> {
+    let mut seen = std::collections::HashSet::new();
+    items(v, "data")
+        .filter(|m| {
+            let c = &m["capabilities"];
+            c["completion_chat"].as_bool() != Some(false) && c["function_calling"].as_bool() != Some(false) && m["deprecation"].is_null()
+        })
+        .filter_map(|m| {
+            let id = s(m, "id")?;
+            (!non_chat(id) && seen.insert(id.to_string())).then(|| ModelInfo { id: id.into(), name: None })
+        })
+        .collect()
+}
+
+fn parse_cohere(v: &Value) -> Vec<ModelInfo> {
+    items(v, "models")
+        .filter_map(|m| {
+            let id = s(m, "name")?;
+            let chat = m["endpoints"].as_array().map_or(true, |a| a.iter().any(|x| x == "chat"));
+            let tools = m["features"].as_array().map_or(true, |a| a.iter().any(|x| x == "tools" || x == "strict_tools"));
+            (chat && tools && !non_chat(id)).then(|| ModelInfo { id: id.into(), name: None })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -306,5 +362,65 @@ mod tests {
     fn compatible_reads_openai_shape() {
         let v = json!({"object": "list", "data": [{"id": "qwen3-coder:latest"}, {"id": "nomic-embed-text"}]});
         assert_eq!(parse_compatible(&v), vec![ModelInfo { id: "qwen3-coder:latest".into(), name: None }]);
+    }
+
+    #[test]
+    fn compatible_drops_speech_and_inactive_models() {
+        // Groq-style list.
+        let v = json!({"data": [
+            {"id": "llama-3.3-70b-versatile", "created": 1, "active": true},
+            {"id": "whisper-large-v3", "created": 5},
+            {"id": "playai-tts", "created": 4},
+            {"id": "meta-llama/llama-guard-4-12b", "created": 3},
+            {"id": "openai/gpt-oss-120b", "created": 2},
+            {"id": "old-model", "created": 9, "active": false},
+        ]});
+        let ids: Vec<_> = parse_compatible(&v).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"]);
+    }
+
+    #[test]
+    fn compatible_reads_together_array() {
+        let v = json!([
+            {"id": "Qwen/Qwen3-Coder", "type": "chat", "display_name": "Qwen3 Coder", "created": 2},
+            {"id": "BAAI/bge-large", "type": "embedding", "created": 3},
+            {"id": "black-forest-labs/FLUX.1", "type": "image", "created": 4},
+        ]);
+        assert_eq!(parse_compatible(&v), vec![ModelInfo { id: "Qwen/Qwen3-Coder".into(), name: Some("Qwen3 Coder".into()) }]);
+    }
+
+    #[test]
+    fn mistral_needs_chat_and_tools() {
+        let v = json!({"data": [
+            {"id": "mistral-large-latest", "capabilities": {"completion_chat": true, "function_calling": true}},
+            {"id": "mistral-large-latest", "capabilities": {"completion_chat": true, "function_calling": true}},
+            {"id": "mistral-embed", "capabilities": {"completion_chat": false, "function_calling": false}},
+            {"id": "mistral-ocr-latest", "capabilities": {"completion_chat": false}},
+            {"id": "open-mistral-7b", "capabilities": {"completion_chat": true, "function_calling": true}, "deprecation": "2025-03-30"},
+        ]});
+        let ids: Vec<_> = parse_mistral(&v).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["mistral-large-latest"]);
+    }
+
+    #[test]
+    fn cohere_needs_chat_and_tools() {
+        let v = json!({"models": [
+            {"name": "command-a-03-2025", "endpoints": ["chat", "generate"], "features": ["tools", "json_mode"]},
+            {"name": "embed-v4.0", "endpoints": ["embed"]},
+            {"name": "command-light", "endpoints": ["chat"], "features": []},
+        ]});
+        let ids: Vec<_> = parse_cohere(&v).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["command-a-03-2025"]);
+    }
+
+    #[test]
+    fn every_compatible_provider_has_a_base_url() {
+        let s = crate::settings::Settings::default();
+        for p in super::super::catalog() {
+            if p.kind == super::super::Kind::OpenAi && p.id != "custom" {
+                let base = super::super::base_url(p.id, &s).unwrap_or_default();
+                assert!(base.starts_with("http"), "{} has no base URL", p.id);
+            }
+        }
     }
 }

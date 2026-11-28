@@ -12,60 +12,88 @@ use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::Serialize;
 
+/// How a provider is called.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Anthropic,
+    Gemini,
+    /// OpenAI Chat Completions, or an API that copies it.
+    OpenAi,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderInfo {
     pub id: &'static str,
     pub name: &'static str,
     pub needs_key: bool,
+    /// Built-in model list, used until the live list arrives or when the
+    /// provider can't be reached.
     pub models: Vec<&'static str>,
     pub key_url: &'static str,
+    #[serde(skip)]
+    pub kind: Kind,
+    /// API base for OpenAI-compatible providers. For providers whose address
+    /// the user sets (local servers, custom endpoints) this is the default.
+    pub base_url: &'static str,
+    /// Settings field holding a user-set base URL, if the address can change.
+    pub url_setting: Option<&'static str>,
+    /// Runs on the user's machine (no key, shown as connected).
+    pub local: bool,
+    /// Supports tool calling. Without it the model can chat but not act.
+    pub tools: bool,
+}
+
+fn p(id: &'static str, name: &'static str, kind: Kind, base_url: &'static str, key_url: &'static str, models: &[&'static str]) -> ProviderInfo {
+    ProviderInfo { id, name, needs_key: true, models: models.to_vec(), key_url, kind, base_url, url_setting: None, local: false, tools: true }
+}
+
+fn local(id: &'static str, name: &'static str, url_setting: &'static str, base_url: &'static str, key_url: &'static str, models: &[&'static str]) -> ProviderInfo {
+    ProviderInfo { needs_key: false, url_setting: Some(url_setting), local: true, ..p(id, name, Kind::OpenAi, base_url, key_url, models) }
 }
 
 pub fn catalog() -> Vec<ProviderInfo> {
+    use Kind::*;
     vec![
-        ProviderInfo {
-            id: "anthropic",
-            name: "Anthropic",
-            needs_key: true,
-            models: vec!["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2"],
-            key_url: "https://console.anthropic.com/settings/keys",
-        },
-        ProviderInfo {
-            id: "openai",
-            name: "OpenAI",
-            needs_key: true,
-            models: vec!["gpt-5", "gpt-5-mini", "o4-mini", "gpt-4.1"],
-            key_url: "https://platform.openai.com/api-keys",
-        },
-        ProviderInfo {
-            id: "gemini",
-            name: "Google Gemini",
-            needs_key: true,
-            models: vec!["gemini-2.5-pro", "gemini-2.5-flash"],
-            key_url: "https://aistudio.google.com/apikey",
-        },
-        ProviderInfo {
-            id: "openrouter",
-            name: "OpenRouter",
-            needs_key: true,
-            models: vec!["anthropic/claude-sonnet-5-5", "openai/gpt-5", "google/gemini-2.5-pro"],
-            key_url: "https://openrouter.ai/keys",
-        },
-        ProviderInfo {
-            id: "ollama",
-            name: "Ollama (local)",
-            needs_key: false,
-            models: vec!["qwen3-coder", "llama3.3", "gpt-oss"],
-            key_url: "https://ollama.com/library",
-        },
-        ProviderInfo {
-            id: "custom",
-            name: "Custom (OpenAI-compatible)",
-            needs_key: false,
-            models: vec![],
-            key_url: "",
-        },
+        p("anthropic", "Anthropic", Anthropic, "", "https://console.anthropic.com/settings/keys", &["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2"]),
+        p("openai", "OpenAI", OpenAi, "https://api.openai.com/v1", "https://platform.openai.com/api-keys", &["gpt-5", "gpt-5-mini", "o4-mini", "gpt-4.1"]),
+        p("gemini", "Google Gemini", Gemini, "", "https://aistudio.google.com/apikey", &["gemini-2.5-pro", "gemini-2.5-flash"]),
+        p("openrouter", "OpenRouter", OpenAi, "https://openrouter.ai/api/v1", "https://openrouter.ai/keys", &["anthropic/claude-sonnet-5-5", "openai/gpt-5", "google/gemini-2.5-pro"]),
+        p("groq", "Groq", OpenAi, "https://api.groq.com/openai/v1", "https://console.groq.com/keys", &["openai/gpt-oss-120b", "moonshotai/kimi-k2-instruct", "llama-3.3-70b-versatile", "qwen/qwen3-32b"]),
+        p("abacus", "Abacus.AI (RouteLLM)", OpenAi, "https://routellm.abacus.ai/v1", "https://abacus.ai/app/route-llm-apis", &["route-llm", "gpt-5", "claude-sonnet-4-5", "gemini-2.5-pro"]),
+        p("mistral", "Mistral", OpenAi, "https://api.mistral.ai/v1", "https://console.mistral.ai/api-keys", &["mistral-large-latest", "mistral-medium-latest", "codestral-latest", "devstral-medium-latest"]),
+        p("deepseek", "DeepSeek", OpenAi, "https://api.deepseek.com/v1", "https://platform.deepseek.com/api_keys", &["deepseek-chat", "deepseek-reasoner"]),
+        p("xai", "xAI (Grok)", OpenAi, "https://api.x.ai/v1", "https://console.x.ai", &["grok-4", "grok-code-fast-1", "grok-3-mini"]),
+        p("together", "Together AI", OpenAi, "https://api.together.xyz/v1", "https://api.together.ai/settings/api-keys", &["moonshotai/Kimi-K2-Instruct", "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8", "meta-llama/Llama-3.3-70B-Instruct-Turbo"]),
+        p("fireworks", "Fireworks AI", OpenAi, "https://api.fireworks.ai/inference/v1", "https://fireworks.ai/account/api-keys", &["accounts/fireworks/models/kimi-k2-instruct", "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct", "accounts/fireworks/models/deepseek-v3p1"]),
+        p("cerebras", "Cerebras", OpenAi, "https://api.cerebras.ai/v1", "https://cloud.cerebras.ai", &["gpt-oss-120b", "qwen-3-coder-480b", "llama-3.3-70b"]),
+        ProviderInfo { tools: false, ..p("perplexity", "Perplexity", OpenAi, "https://api.perplexity.ai", "https://www.perplexity.ai/account/api/keys", &["sonar-pro", "sonar", "sonar-reasoning-pro"]) },
+        p("cohere", "Cohere", OpenAi, "https://api.cohere.ai/compatibility/v1", "https://dashboard.cohere.com/api-keys", &["command-a-03-2025", "command-r-plus-08-2024", "command-r-08-2024"]),
+        p("deepinfra", "DeepInfra", OpenAi, "https://api.deepinfra.com/v1/openai", "https://deepinfra.com/dash/api_keys", &["Qwen/Qwen3-Coder-480B-A35B-Instruct", "moonshotai/Kimi-K2-Instruct", "meta-llama/Llama-3.3-70B-Instruct"]),
+        p("huggingface", "Hugging Face", OpenAi, "https://router.huggingface.co/v1", "https://huggingface.co/settings/tokens", &["openai/gpt-oss-120b", "Qwen/Qwen3-Coder-480B-A35B-Instruct", "deepseek-ai/DeepSeek-V3.1"]),
+        p("sambanova", "SambaNova", OpenAi, "https://api.sambanova.ai/v1", "https://cloud.sambanova.ai/apis", &["DeepSeek-V3.1", "Meta-Llama-3.3-70B-Instruct", "gpt-oss-120b"]),
+        p("nebius", "Nebius AI Studio", OpenAi, "https://api.studio.nebius.com/v1", "https://studio.nebius.com/settings/api-keys", &["Qwen/Qwen3-Coder-480B-A35B-Instruct", "deepseek-ai/DeepSeek-V3", "openai/gpt-oss-120b"]),
+        p("novita", "Novita AI", OpenAi, "https://api.novita.ai/openai/v1", "https://novita.ai/settings/key-management", &["moonshotai/kimi-k2-instruct", "qwen/qwen3-coder-480b-a35b-instruct", "deepseek/deepseek-v3.1"]),
+        p("moonshot", "Moonshot (Kimi)", OpenAi, "https://api.moonshot.ai/v1", "https://platform.moonshot.ai/console/api-keys", &["kimi-k2-turbo-preview", "kimi-k2-0905-preview", "kimi-latest"]),
+        p("zai", "Z.ai (GLM)", OpenAi, "https://api.z.ai/api/paas/v4", "https://z.ai/manage-apikey/apikey-list", &["glm-4.6", "glm-4.5", "glm-4.5-air"]),
+        p("qwen", "Alibaba Qwen", OpenAi, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key", &["qwen3-coder-plus", "qwen3-max", "qwen-plus"]),
+        local("ollama", "Ollama (local)", "ollama_base_url", "http://localhost:11434/v1", "https://ollama.com/library", &["qwen3-coder", "llama3.3", "gpt-oss"]),
+        local("lmstudio", "LM Studio (local)", "lmstudio_base_url", "http://localhost:1234/v1", "https://lmstudio.ai/docs/app/api", &[]),
+        ProviderInfo { local: false, ..local("custom", "Custom (OpenAI-compatible)", "custom_base_url", "", "", &[]) },
     ]
+}
+
+pub fn info(id: &str) -> Option<ProviderInfo> {
+    catalog().into_iter().find(|p| p.id == id)
+}
+
+/// The base URL to call for a provider: the user's setting when the address
+/// can change, otherwise the built-in one.
+pub fn base_url(id: &str, s: &crate::settings::Settings) -> Option<String> {
+    let p = info(id)?;
+    let set = p.url_setting.map(|f| s.base_url(f)).unwrap_or_default();
+    let url = if set.trim().is_empty() { p.base_url.to_string() } else { set.trim().to_string() };
+    (!url.is_empty()).then(|| url.trim_end_matches('/').to_string())
 }
 
 pub struct TurnRequest<'a> {
@@ -83,18 +111,25 @@ pub async fn stream_turn(
     req: TurnRequest<'_>,
     on_delta: &mut (dyn FnMut(StreamDelta) + Send),
 ) -> Result<Turn> {
-    let key = req.api_key.clone();
-    let need_key = || key.clone().ok_or_else(|| anyhow!("No API key set for {}. Add one in Settings.", req.provider));
-    match req.provider {
-        "anthropic" => anthropic::stream(http, &need_key()?, &req, on_delta).await,
-        "gemini" => gemini::stream(http, &need_key()?, &req, on_delta).await,
-        "openai" => openai::stream(http, "https://api.openai.com/v1", Some(&need_key()?), true, &req, on_delta).await,
-        "openrouter" => openai::stream(http, "https://openrouter.ai/api/v1", Some(&need_key()?), false, &req, on_delta).await,
-        "ollama" | "custom" => {
-            let base = req.base_url.clone().filter(|b| !b.is_empty()).ok_or_else(|| anyhow!("Set a base URL for {} in Settings.", req.provider))?;
-            openai::stream(http, base.trim_end_matches('/'), key.as_deref(), false, &req, on_delta).await
+    let p = info(req.provider).ok_or_else(|| anyhow!("Unknown provider: {}", req.provider))?;
+    let key = req.api_key.clone().filter(|k| !k.is_empty());
+    let need_key = || key.clone().ok_or_else(|| anyhow!("No API key set for {}. Add one in Settings.", p.name));
+    match p.kind {
+        Kind::Anthropic => anthropic::stream(http, &need_key()?, &req, on_delta).await,
+        Kind::Gemini => gemini::stream(http, &need_key()?, &req, on_delta).await,
+        Kind::OpenAi => {
+            let base = req
+                .base_url
+                .clone()
+                .filter(|b| !b.is_empty())
+                .or_else(|| (!p.base_url.is_empty()).then(|| p.base_url.to_string()))
+                .ok_or_else(|| anyhow!("Set a base URL for {} in Settings.", p.name))?;
+            let key = if p.needs_key { Some(need_key()?) } else { key.clone() };
+            // A provider without tool calling can still chat.
+            let no_tools: [ToolSpec; 0] = [];
+            let req = TurnRequest { tools: if p.tools { req.tools } else { &no_tools }, ..req };
+            openai::stream(http, base.trim_end_matches('/'), key.as_deref(), p.id == "openai", &req, on_delta).await
         }
-        other => Err(anyhow!("Unknown provider: {other}")),
     }
 }
 

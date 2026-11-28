@@ -369,11 +369,7 @@ async fn drive(
             return finish(&mut session, &checkpoint);
         }
         let settings = settings::load();
-        let base_url = match args.provider.as_str() {
-            "ollama" => Some(settings.ollama_base_url.clone()),
-            "custom" => Some(settings.custom_base_url.clone()),
-            _ => None,
-        };
+        let base_url = crate::providers::base_url(&args.provider, &settings);
         let system = match &root {
             Some(home) if whole_pc => pc_prompt(home),
             Some(root) => system_prompt(root, &settings.disabled_skills),

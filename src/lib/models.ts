@@ -100,8 +100,10 @@ const bareId = (id: string) => (id.split("/").pop() ?? id).split(":")[0].toLower
  *
  * Order: exact id, then the id without its vendor prefix or ":tag", then the
  * first search result. Only when no list has a match is the text used as a
- * raw model id, on OpenRouter if it looks like "vendor/model", otherwise on
- * the current provider.
+ * raw model id. A "vendor/model" id stays on the current provider when that
+ * provider names its models that way (Groq, Together, DeepInfra, Hugging
+ * Face…), otherwise it goes to OpenRouter. Anything else uses the current
+ * provider.
  */
 export function resolveTypedModel(
   query: string,
@@ -124,8 +126,15 @@ export function resolveTypedModel(
     find((m) => m.id.toLowerCase() === q) ??
     find((m) => bareId(m.id) === bare) ??
     find((m) => m.id.toLowerCase().includes(q) || modelLabel(m.id, [m]).toLowerCase().includes(q)) ?? {
-      provider: raw.includes("/") && lists.some((l) => l.provider === "openrouter") ? "openrouter" : current,
+      provider: rawProvider(raw, lists, current),
       model: raw,
     }
   );
+}
+
+function rawProvider(raw: string, lists: { provider: string; models: ModelInfo[] }[], current: string): string {
+  if (!raw.includes("/")) return current;
+  const cur = lists.find((l) => l.provider === current);
+  if (cur?.models.some((m) => m.id.includes("/"))) return current;
+  return lists.some((l) => l.provider === "openrouter") ? "openrouter" : current;
 }

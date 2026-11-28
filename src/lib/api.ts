@@ -33,6 +33,7 @@ export interface Settings {
   theme: "dark" | "light";
   ollama_base_url: string;
   custom_base_url: string;
+  lmstudio_base_url: string;
   recent_projects: string[];
   disabled_skills: string[];
   auto_update: boolean;
@@ -44,6 +45,14 @@ export interface Provider {
   needs_key: boolean;
   models: string[];
   key_url: string;
+  /** Default API address for OpenAI-compatible providers. */
+  base_url: string;
+  /** Settings field with a user-set address, for local servers and custom endpoints. */
+  url_setting: "ollama_base_url" | "lmstudio_base_url" | "custom_base_url" | null;
+  /** Runs on this computer; works without a key. */
+  local: boolean;
+  /** Supports tool calling. Without it the model can chat but not edit files or run commands. */
+  tools: boolean;
   has_key: boolean;
   key_hint: string | null;
 }
