@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   api,
   type AgentEvent,
+  type Attachment,
   type Message,
   type Provider,
   type RunInfo,
@@ -10,6 +11,7 @@ import {
   type Usage,
 } from "./lib/api";
 import type { ModelList } from "./lib/models";
+import { before, turns, withoutReply, withoutTurn, promptParts, type Turn } from "./lib/turns";
 
 export interface Approval {
   requestId: string;
@@ -81,7 +83,15 @@ interface Store {
   newChat(): Promise<string | null>;
   selectSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
-  send(text: string): Promise<void>;
+  send(text: string, attachments?: Attachment[]): Promise<void>;
+  /** Remove a turn: the message the user sent and its reply. */
+  deleteTurn(start: number): Promise<void>;
+  /** Remove only the reply to a turn, keeping what the user sent. */
+  deleteReply(start: number): Promise<void>;
+  /** Drop the turn's reply and everything after it, then send its prompt again. */
+  retry(start: number): Promise<void>;
+  /** Replace the turn's prompt (dropping everything after it) and send it. */
+  editAndSend(start: number, text: string, attachments: Attachment[]): Promise<void>;
   stop(): Promise<void>;
   decide(toolUseId: string, decision: "allow" | "allow_always" | "deny"): Promise<void>;
   revert(runId: string): Promise<void>;
@@ -113,6 +123,24 @@ export const useStore = create<Store>((set, get) => {
   const loadChat = async (id: string) => {
     const sess = await api.loadSession(id);
     patchChat(id, (c) => ({ messages: sess.messages, usage: sess.usage, runs: sess.runs, running: c.running }));
+  };
+
+  /** Save a chat with one turn changed. Returns false if nothing was saved. */
+  const rewrite = async (start: number, change: (messages: Message[], t: Turn) => Message[]) => {
+    const sid = get().sessionId;
+    const chat = sid ? get().chats[sid] : undefined;
+    if (!sid || !chat || chat.running) return false;
+    const t = turns(chat.messages).find((x) => x.start === start);
+    if (!t) return false;
+    const next = change(chat.messages, t);
+    try {
+      await api.setMessages(sid, next);
+    } catch (e) {
+      get().notify(String(e));
+      return false;
+    }
+    patchChat(sid, () => ({ messages: next, lastRun: null, error: null }));
+    return true;
   };
 
   return {
@@ -221,7 +249,7 @@ export const useStore = create<Store>((set, get) => {
       await get().refreshSessions();
     },
 
-    async send(text) {
+    async send(text, attachments = []) {
       const { settings } = get();
       if (!settings) return;
       let sid = get().sessionId;
@@ -229,10 +257,31 @@ export const useStore = create<Store>((set, get) => {
       if (!sid) return;
       patchChat(sid, () => ({ running: true, error: null, lastRun: null, draft: { text: "", thinking: "", pendingTool: null } }));
       try {
-        await api.send(sid, text, settings.provider, settings.model);
+        await api.send(sid, text, attachments, settings.provider, settings.model);
       } catch (e) {
         patchChat(sid, () => ({ running: false, draft: null, error: String(e) }));
       }
+    },
+
+    async deleteTurn(start) {
+      await rewrite(start, withoutTurn);
+    },
+
+    async deleteReply(start) {
+      await rewrite(start, withoutReply);
+    },
+
+    async retry(start) {
+      const sid = get().sessionId;
+      const prompt = sid ? get().chats[sid]?.messages[start] : undefined;
+      if (!prompt) return;
+      const { text, attachments } = promptParts(prompt);
+      if (await rewrite(start, before)) await get().send(text, attachments);
+    },
+
+    async editAndSend(start, text, attachments) {
+      if (!text.trim() && !attachments.length) return;
+      if (await rewrite(start, before)) await get().send(text, attachments);
     },
 
     async stop() {

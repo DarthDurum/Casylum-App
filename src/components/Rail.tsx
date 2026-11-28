@@ -29,7 +29,7 @@ export function Rail() {
 
   return (
     <aside className="rail">
-      <div className="brand">
+      <div className="brand" data-tauri-drag-region="deep">
         <div className="brand-mark" />
         <span>Casylum</span>
       </div>

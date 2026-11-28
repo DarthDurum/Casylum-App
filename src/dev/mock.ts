@@ -15,8 +15,14 @@ const after = `export function total(items: Item[], taxRate = 0) {
 }
 `;
 
-const messages: Message[] = [
-  { role: "user", content: [{ type: "text", text: "The cart total ignores quantity and tax. Fix it and add a test." }] },
+let messages: Message[] = [
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "The cart total ignores quantity and tax. Fix it and add a test." },
+      { type: "file", name: "bug-report.txt", text: "Cart shows $10 for 3 items at $10 each." },
+    ],
+  },
   {
     role: "assistant",
     content: [
@@ -93,6 +99,11 @@ export function installMock() {
           };
           return { provider: args.provider, models: lists[args.provider] ?? [], source: "live", fetched_at: Date.now(), error: null };
         }
+        case "set_messages":
+          messages = args.messages;
+          return;
+        case "read_attachment":
+          return { type: "file", name: String(args.path).split("/").pop(), text: "" };
         case "agent_running":
           return [];
         case "list_sessions":

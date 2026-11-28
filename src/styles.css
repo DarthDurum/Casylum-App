@@ -2107,3 +2107,244 @@ body.dragging .panel-drag {
   justify-content: space-between;
   gap: 12px;
 }
+
+/* ---------- window controls (no OS title bar) ---------- */
+:root {
+  --winctl-w: 122px;
+}
+.win-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px 0 4px;
+  z-index: 300;
+}
+.win-btn {
+  width: 34px;
+  height: 30px;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+.win-btn svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.win-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.win-btn:active {
+  background: var(--line-2);
+}
+.win-btn.close:hover {
+  background: color-mix(in srgb, var(--rose) 18%, var(--hover));
+  color: var(--rose);
+}
+.win-btn.close:active {
+  background: color-mix(in srgb, var(--rose) 28%, var(--hover));
+}
+/* Keep header content clear of the controls in whichever header sits under them. */
+.app.with-panel .tabs,
+.app:not(.with-panel) .chat-head {
+  padding-right: var(--winctl-w);
+}
+.drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  z-index: 1;
+}
+
+/* ---------- message actions ---------- */
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.msg-actions,
+.reply-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.msg-actions {
+  margin-top: -2px;
+}
+.reply-actions {
+  margin-top: -14px;
+  margin-left: -6px;
+}
+.msg.user:hover .msg-actions,
+.msg.user:focus-within .msg-actions,
+.turn:hover .reply-actions,
+.turn:focus-within .reply-actions,
+.turn.latest .reply-actions {
+  opacity: 1;
+}
+.act {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+.act:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.act:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.act.danger:hover:not(:disabled),
+.act.armed {
+  color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 12%, transparent);
+}
+.edit-box {
+  width: min(100%, 620px);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line-2));
+  border-radius: 18px;
+  padding: 12px 10px 8px 16px;
+  box-shadow: var(--sheet-shadow);
+}
+.edit-box textarea {
+  width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.edit-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.edit-hint {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- attachments ---------- */
+.att-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.msg.user > .att-row {
+  justify-content: flex-end;
+  margin-bottom: 0;
+}
+.att {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  height: 36px;
+  padding: 0 8px 0 4px;
+  border-radius: 10px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  animation: rise 0.14s var(--ease);
+}
+.att-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.att-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.att-x {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.att-x:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.sent-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 80%;
+}
+.sent-image {
+  max-width: 240px;
+  max-height: 180px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  object-fit: cover;
+}
+.pill.icon-pill {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+.composer.dropping {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface));
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 600;
+  z-index: 2;
+  pointer-events: none;
+}

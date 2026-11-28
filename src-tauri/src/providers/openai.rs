@@ -14,21 +14,36 @@ fn to_wire(system: &str, messages: &[Message]) -> Vec<Value> {
             Role::User => {
                 // Tool results become separate `tool` messages; text stays as a user message.
                 let mut text = String::new();
+                let mut images = vec![];
+                let push_text = |t: &str, text: &mut String| {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(t);
+                };
                 for b in &m.content {
                     match b {
                         Block::ToolResult { tool_use_id, content, .. } => {
                             out.push(json!({"role": "tool", "tool_call_id": tool_use_id, "content": content}));
                         }
-                        Block::Text { text: t } => {
-                            if !text.is_empty() {
-                                text.push('\n');
-                            }
-                            text.push_str(t);
-                        }
+                        Block::Text { text: t } => push_text(t, &mut text),
+                        Block::File { name, text: t } => push_text(&file_as_text(name, t), &mut text),
+                        Block::Image { media_type, data, .. } => images.push(json!({
+                            "type": "image_url",
+                            "image_url": {"url": format!("data:{media_type};base64,{data}")}
+                        })),
                         _ => {}
                     }
                 }
-                if !text.is_empty() {
+                if !images.is_empty() {
+                    // Images need the multi-part content form.
+                    let mut parts = vec![];
+                    if !text.is_empty() {
+                        parts.push(json!({"type": "text", "text": text}));
+                    }
+                    parts.extend(images);
+                    out.push(json!({"role": "user", "content": parts}));
+                } else if !text.is_empty() {
                     out.push(json!({"role": "user", "content": text}));
                 }
             }

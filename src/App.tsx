@@ -12,6 +12,7 @@ import { SkillsModal } from "./components/Skills";
 import { Palette } from "./components/Palette";
 import { Onboarding } from "./components/Onboarding";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { WindowControls } from "./components/WindowControls";
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -73,19 +74,28 @@ export default function App() {
     };
   }, []);
 
-  if (!ready) return <div className="boot" />;
+  if (!ready)
+    return (
+      <div className="boot" data-tauri-drag-region="deep">
+        <WindowControls />
+      </div>
+    );
 
   // Local providers (Ollama, custom endpoints) count as connected without a key.
   const hasProvider = providers.some((p) => p.has_key) || ["ollama", "custom"].includes(settings?.provider ?? "");
   // A folder is optional: chats without one just can't touch files.
   if (!onboarded && !hasProvider) {
     return (
-      <Onboarding
-        onDone={() => {
-          localStorage.setItem("onboarded", "1");
-          setOnboarded(true);
-        }}
-      />
+      <>
+        <div className="drag-strip" data-tauri-drag-region="deep" />
+        <WindowControls />
+        <Onboarding
+          onDone={() => {
+            localStorage.setItem("onboarded", "1");
+            setOnboarded(true);
+          }}
+        />
+      </>
     );
   }
 
@@ -97,6 +107,7 @@ export default function App() {
       {modal === "settings" && <SettingsModal />}
       {modal === "skills" && <SkillsModal />}
       {modal === "palette" && <Palette />}
+      <WindowControls />
       <UpdateBanner />
       {toast && <div className="toast">{toast}</div>}
     </div>

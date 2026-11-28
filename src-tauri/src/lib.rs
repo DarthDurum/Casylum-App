@@ -142,14 +142,34 @@ fn rename_session(id: String, title: String) -> Res<()> {
 
 // ---------- agent ----------
 
+/// Replace a chat's messages after the user deletes, edits or retries one.
 #[tauri::command]
-fn agent_send(app: AppHandle, st: State<'_, App>, session_id: String, text: String, provider: String, model: String) -> Res<()> {
+fn set_messages(st: State<'_, App>, id: String, messages: Vec<types::Message>) -> Res<()> {
+    if st.agent.running.lock().contains_key(&id) {
+        return Err("Wait for this chat to finish first.".into());
+    }
+    let mut s = agent::load_session(&id).map_err(e)?;
+    s.messages = messages;
+    agent::save_session(&s).map_err(e)
+}
+
+#[tauri::command]
+fn agent_send(
+    app: AppHandle,
+    st: State<'_, App>,
+    session_id: String,
+    text: String,
+    attachments: Option<Vec<types::Block>>,
+    provider: String,
+    model: String,
+) -> Res<()> {
     if st.agent.running.lock().contains_key(&session_id) {
         return Err("This chat is already running.".into());
     }
     let state = st.agent.clone();
     let http = st.http.clone();
-    tauri::async_runtime::spawn(agent::run_agent(app, state, http, SendArgs { session_id, text, provider, model }));
+    let attachments = attachments.unwrap_or_default();
+    tauri::async_runtime::spawn(agent::run_agent(app, state, http, SendArgs { session_id, text, attachments, provider, model }));
     Ok(())
 }
 
@@ -220,6 +240,48 @@ fn fs_read(root: String, rel: String) -> Res<String> {
         return Err("Binary file".into());
     }
     Ok(String::from_utf8_lossy(&bytes).to_string())
+}
+
+const MAX_IMAGE: u64 = 5 * 1024 * 1024;
+const MAX_TEXT: u64 = 1024 * 1024;
+
+/// Read a file the user picked or dropped so it can ride along with a message.
+#[tauri::command]
+async fn read_attachment(path: String) -> Res<types::Block> {
+    use base64::Engine;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+        let meta = std::fs::metadata(p).map_err(e)?;
+        if meta.is_dir() {
+            return Err(format!("{name} is a folder"));
+        }
+        let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let image = match ext.as_str() {
+            "png" => Some("image/png"),
+            "jpg" | "jpeg" => Some("image/jpeg"),
+            "gif" => Some("image/gif"),
+            "webp" => Some("image/webp"),
+            _ => None,
+        };
+        if let Some(media_type) = image {
+            if meta.len() > MAX_IMAGE {
+                return Err(format!("{name} is over 5 MB"));
+            }
+            let data = base64::engine::general_purpose::STANDARD.encode(std::fs::read(p).map_err(e)?);
+            return Ok(types::Block::Image { name, media_type: media_type.into(), data });
+        }
+        if meta.len() > MAX_TEXT {
+            return Err(format!("{name} is over 1 MB"));
+        }
+        let bytes = std::fs::read(p).map_err(e)?;
+        if bytes.iter().take(8000).any(|b| *b == 0) {
+            return Err(format!("{name} isn't a text file or image"));
+        }
+        Ok(types::Block::File { name, text: String::from_utf8_lossy(&bytes).to_string() })
+    })
+    .await
+    .map_err(e)?
 }
 
 // ---------- skills ----------
@@ -320,6 +382,8 @@ pub fn run() {
             load_session,
             delete_session,
             rename_session,
+            set_messages,
+            read_attachment,
             agent_send,
             agent_stop,
             agent_running,

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, ChevronDown, RefreshCw, Shield, ShieldCheck, ShieldOff, Square } from "lucide-react";
-import type { PermissionMode } from "../lib/api";
+import { ArrowUp, Check, ChevronDown, Paperclip, RefreshCw, Shield, ShieldCheck, ShieldOff, Square } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import type { Attachment, PermissionMode } from "../lib/api";
+import { AttachmentRow, readPastedImages, readPaths } from "./Attachments";
 import { modelLabel, resolveTypedModel, type ModelInfo } from "../lib/models";
 import { useChat, useStore } from "../store";
 
@@ -19,9 +22,49 @@ export function Composer() {
   const sessionId = useStore((s) => s.sessionId);
   const providerModels = useStore((s) => (s.settings ? s.models[s.settings.provider]?.models : undefined));
   const providerName = useStore((s) => s.providers.find((p) => p.id === s.settings?.provider)?.name);
+  const notify = useStore((s) => s.notify);
   const [text, setText] = useState("");
+  const [atts, setAtts] = useState<Attachment[]>([]);
+  const [dropping, setDropping] = useState(false);
   const [menu, setMenu] = useState<null | "model" | "mode">(null);
   const ta = useRef<HTMLTextAreaElement>(null);
+
+  const add = (more: Attachment[]) => {
+    if (more.length) setAtts((a) => [...a, ...more]);
+    ta.current?.focus();
+  };
+
+  const pickFiles = async () => {
+    const picked = await open({ multiple: true, directory: false, title: "Attach files" });
+    const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
+    add(await readPaths(paths, notify));
+  };
+
+  // Files dragged onto the window arrive as paths from Tauri, not as DOM drops.
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    let gone = false;
+    try {
+      void getCurrentWebview()
+        .onDragDropEvent((e) => {
+          const p = e.payload;
+          if (p.type === "enter" || p.type === "over") setDropping(true);
+          else if (p.type === "leave") setDropping(false);
+          else if (p.type === "drop") {
+            setDropping(false);
+            void readPaths(p.paths, useStore.getState().notify).then(add);
+          }
+        })
+        .then((f) => (gone ? f() : (un = f)))
+        .catch(() => {});
+    } catch {
+      // plain browser preview
+    }
+    return () => {
+      gone = true;
+      un?.();
+    };
+  }, []);
 
   useEffect(() => {
     ta.current?.focus();
@@ -42,9 +85,10 @@ export function Composer() {
 
   const submit = () => {
     const t = text.trim();
-    if (!t || chat.running) return;
+    if ((!t && !atts.length) || chat.running) return;
     setText("");
-    void send(t);
+    setAtts([]);
+    void send(t, atts);
   };
 
   if (!settings) return null;
@@ -53,12 +97,20 @@ export function Composer() {
 
   return (
     <div className="composer-wrap">
-      <div className={`composer ${chat.running ? "busy" : ""}`}>
+      <div className={`composer ${chat.running ? "busy" : ""} ${dropping ? "dropping" : ""}`}>
+        {dropping && <div className="drop-hint">Drop files to attach</div>}
+        <AttachmentRow items={atts} onRemove={(i) => setAtts((a) => a.filter((_, j) => j !== i))} />
         <textarea
           ref={ta}
           value={text}
           placeholder={chat.running ? "Casylum is working… you can type your next message" : "Ask Casylum to build, fix or explain…"}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData.files);
+            if (!files.some((f) => f.type.startsWith("image/"))) return;
+            e.preventDefault();
+            void readPastedImages(files, notify).then(add);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
@@ -69,6 +121,9 @@ export function Composer() {
         />
         <div className="composer-bar">
           <div className="pill-row">
+            <button className="pill icon-pill" onClick={() => void pickFiles()} title="Attach files or images" aria-label="Attach files">
+              <Paperclip size={14} />
+            </button>
             <div className="menu-anchor" onClick={(e) => e.stopPropagation()}>
               <button className={`pill mode-${settings.permission_mode}`} onClick={() => setMenu(menu === "mode" ? null : "mode")}>
                 <ModeIcon size={12} />
@@ -115,7 +170,7 @@ export function Composer() {
               <Square size={13} fill="currentColor" />
             </button>
           ) : (
-            <button className="send" onClick={submit} disabled={!text.trim()} title="Send (Enter)">
+            <button className="send" onClick={submit} disabled={!text.trim() && !atts.length} title="Send (Enter)">
               <ArrowUp size={16} />
             </button>
           )}

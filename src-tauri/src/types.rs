@@ -43,6 +43,29 @@ pub enum Block {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         meta: Option<Value>,
     },
+    /// An image the user attached. `data` is base64 with no `data:` prefix.
+    Image {
+        name: String,
+        media_type: String,
+        data: String,
+    },
+    /// A text file the user attached. Sent to the model inline as text.
+    File {
+        name: String,
+        text: String,
+    },
+}
+
+impl Block {
+    /// Whether this block is something the user attached to a message.
+    pub fn is_attachment(&self) -> bool {
+        matches!(self, Block::Image { .. } | Block::File { .. })
+    }
+}
+
+/// How an attached text file is shown to a model.
+pub fn file_as_text(name: &str, text: &str) -> String {
+    format!("<attached_file name=\"{name}\">\n{text}\n</attached_file>")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +75,7 @@ pub struct Message {
 }
 
 impl Message {
+    #[cfg(test)]
     pub fn user_text(text: impl Into<String>) -> Self {
         Self { role: Role::User, content: vec![Block::Text { text: text.into() }] }
     }
