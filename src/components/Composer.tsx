@@ -270,7 +270,9 @@ function ModelMenu({ close }: { close: () => void }) {
       {visible.map((p) => {
         const list = models[p.id];
         const all: ModelInfo[] = list?.models ?? p.models.map((id) => ({ id }));
-        const shown = q ? all.filter((m) => m.id.toLowerCase().includes(q) || modelLabel(m.id, all).toLowerCase().includes(q)) : all;
+        // Searching a provider's name ("abacus") shows all of its models.
+        const providerHit = !!q && (p.name.toLowerCase().includes(q) || p.id.includes(q));
+        const shown = q && !providerHit ? all.filter((m) => m.id.toLowerCase().includes(q) || modelLabel(m.id, all).toLowerCase().includes(q)) : all;
         if (q && shown.length === 0) return null;
         // A local endpoint that isn't set up yet has nothing to offer.
         if (list && all.length === 0) return null;
