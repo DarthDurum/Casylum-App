@@ -89,3 +89,43 @@ export function modelLabel(id: string, models?: ModelInfo[]): string {
   const m = models?.find((x) => x.id === id);
   return m?.name || prettifyModelId(id);
 }
+
+/** The part of a model id people type: "cognitivecomputations/dolphin:free" -> "dolphin". */
+const bareId = (id: string) => (id.split("/").pop() ?? id).split(":")[0].toLowerCase();
+
+/**
+ * Work out which provider and model the user means when they type into the
+ * model search and press Enter. The model must be sent to the provider that
+ * lists it: sending an OpenRouter model id to Gemini fails with a Gemini error.
+ *
+ * Order: exact id, then the id without its vendor prefix or ":tag", then the
+ * first search result. Only when no list has a match is the text used as a
+ * raw model id, on OpenRouter if it looks like "vendor/model", otherwise on
+ * the current provider.
+ */
+export function resolveTypedModel(
+  query: string,
+  lists: { provider: string; models: ModelInfo[] }[],
+  current: string,
+): { provider: string; model: string } {
+  const raw = query.trim();
+  const q = raw.toLowerCase();
+  // The current provider wins ties.
+  const ordered = [...lists].sort((a, b) => Number(b.provider === current) - Number(a.provider === current));
+  const find = (test: (m: ModelInfo) => boolean) => {
+    for (const l of ordered) {
+      const m = l.models.find(test);
+      if (m) return { provider: l.provider, model: m.id };
+    }
+    return null;
+  };
+  const bare = bareId(raw);
+  return (
+    find((m) => m.id.toLowerCase() === q) ??
+    find((m) => bareId(m.id) === bare) ??
+    find((m) => m.id.toLowerCase().includes(q) || modelLabel(m.id, [m]).toLowerCase().includes(q)) ?? {
+      provider: raw.includes("/") && lists.some((l) => l.provider === "openrouter") ? "openrouter" : current,
+      model: raw,
+    }
+  );
+}
