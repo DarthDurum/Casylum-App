@@ -83,8 +83,8 @@ impl Message {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub schema: Value,
 }
 

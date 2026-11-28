@@ -1,5 +1,7 @@
 mod agent;
 mod keys;
+mod mcp;
+mod projects;
 mod providers;
 mod settings;
 mod skills;
@@ -11,10 +13,11 @@ use agent::{AgentState, Decision, SendArgs};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 struct App {
     agent: Arc<AgentState>,
+    mcp: Arc<mcp::Manager>,
     http: reqwest::Client,
     terms: terminal::Terminals,
 }
@@ -109,8 +112,8 @@ fn list_sessions(project: Option<String>) -> Vec<agent::SessionSummary> {
 }
 
 #[tauri::command]
-fn create_session(project: String, provider: String, model: String) -> Res<agent::Session> {
-    let s = agent::new_session(&project, &provider, &model);
+fn create_session(project: String, provider: String, model: String, project_id: Option<String>) -> Res<agent::Session> {
+    let s = agent::new_session(&project, &provider, &model, project_id.filter(|p| !p.is_empty()));
     agent::save_session(&s).map_err(e)?;
     Ok(s)
 }
@@ -138,6 +141,54 @@ fn set_session_project(st: State<'_, App>, id: String, project: String) -> Res<(
     let mut s = agent::load_session(&id).map_err(e)?;
     s.project = project;
     agent::save_session(&s).map_err(e)
+}
+
+/// Move a chat into a project (or out of one with `None`). A chat without a
+/// folder takes the project's folder.
+#[tauri::command]
+fn set_session_group(st: State<'_, App>, id: String, project_id: Option<String>) -> Res<agent::Session> {
+    if st.agent.running.lock().contains_key(&id) {
+        return Err("Wait for this chat to finish first.".into());
+    }
+    let mut s = agent::load_session(&id).map_err(e)?;
+    let group = match project_id.filter(|p| !p.is_empty()) {
+        Some(pid) => Some(projects::get(&pid).ok_or("That project no longer exists.")?),
+        None => None,
+    };
+    if let Some(g) = &group {
+        if s.project.is_empty() && !g.folder.is_empty() {
+            s.project = g.folder.clone();
+        }
+    }
+    s.project_id = group.map(|g| g.id);
+    agent::save_session(&s).map_err(e)?;
+    Ok(s)
+}
+
+// ---------- projects (groups of chats) ----------
+
+#[tauri::command]
+fn projects_list() -> Vec<projects::Project> {
+    projects::list()
+}
+
+#[tauri::command]
+fn project_create(name: String, folder: String, instructions: String) -> Res<projects::Project> {
+    let p = projects::create(&name, &folder, &instructions).map_err(e)?;
+    if !p.folder.is_empty() {
+        let _ = add_recent_project(p.folder.clone());
+    }
+    Ok(p)
+}
+
+#[tauri::command]
+fn project_update(id: String, name: String, folder: String, instructions: String) -> Res<projects::Project> {
+    projects::update(&id, &name, &folder, &instructions).map_err(e)
+}
+
+#[tauri::command]
+fn project_delete(id: String) -> Res<()> {
+    projects::delete(&id).map_err(e)
 }
 
 #[tauri::command]
@@ -176,7 +227,8 @@ fn agent_send(
     let state = st.agent.clone();
     let http = st.http.clone();
     let attachments = attachments.unwrap_or_default();
-    tauri::async_runtime::spawn(agent::run_agent(app, state, http, SendArgs { session_id, text, attachments, provider, model }));
+    let mcp = st.mcp.clone();
+    tauri::async_runtime::spawn(agent::run_agent(app, state, http, mcp, SendArgs { session_id, text, attachments, provider, model }));
     Ok(())
 }
 
@@ -324,6 +376,75 @@ fn skill_toggle(scope: String, name: String, enabled: bool) -> Res<()> {
     settings::save(&s).map_err(e)
 }
 
+/// Install skills from a .zip or .skill file.
+#[tauri::command]
+async fn skill_import_zip(path: String, scope: String, project: Option<String>) -> Res<Vec<skills::Imported>> {
+    tauri::async_runtime::spawn_blocking(move || skills::import_zip(&path, &scope, project.as_deref())).await.map_err(e)?.map_err(e)
+}
+
+// ---------- MCP servers ----------
+
+#[tauri::command]
+fn mcp_status(st: State<'_, App>) -> Vec<mcp::ServerStatus> {
+    st.mcp.statuses()
+}
+
+/// The raw config text and where it lives.
+#[tauri::command]
+fn mcp_config() -> Value {
+    json!({ "path": mcp::config::path().to_string_lossy(), "text": mcp::config::read_text() })
+}
+
+/// Save the whole config (pasted or edited JSON) and reconnect.
+#[tauri::command]
+fn mcp_save_config(st: State<'_, App>, text: String) -> Res<()> {
+    mcp::config::save_text(&text).map_err(e)?;
+    match st.mcp.sync() {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
+/// Add or edit one server from the form.
+#[tauri::command]
+fn mcp_put_server(st: State<'_, App>, name: String, server: Value, previous: Option<String>) -> Res<()> {
+    mcp::config::put_server(name.trim(), server, previous.as_deref()).map_err(e)?;
+    st.mcp.sync();
+    Ok(())
+}
+
+#[tauri::command]
+fn mcp_remove_server(st: State<'_, App>, name: String) -> Res<()> {
+    mcp::config::remove_server(&name).map_err(e)?;
+    st.mcp.sync();
+    Ok(())
+}
+
+#[tauri::command]
+fn mcp_set_enabled(st: State<'_, App>, name: String, enabled: bool) -> Res<()> {
+    mcp::config::set_disabled(&name, !enabled).map_err(e)?;
+    st.mcp.sync();
+    Ok(())
+}
+
+/// Bring in servers from Claude Desktop, Claude Code, Cursor or Windsurf.
+#[tauri::command]
+fn mcp_import_apps(st: State<'_, App>) -> Res<mcp::config::ImportReport> {
+    let r = mcp::config::import_from_apps().map_err(e)?;
+    st.mcp.sync();
+    Ok(r)
+}
+
+#[tauri::command]
+fn mcp_restart(st: State<'_, App>, name: String) {
+    st.mcp.restart(&name);
+}
+
+#[tauri::command]
+fn mcp_logs(st: State<'_, App>, name: String) -> Vec<String> {
+    st.mcp.logs(&name)
+}
+
 #[tauri::command]
 fn skills_paths(project: Option<String>) -> Value {
     json!({
@@ -366,6 +487,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Connect MCP servers in the background; chats work meanwhile.
+            {
+                let st = app.state::<App>();
+                st.mcp.set_app(app.handle().clone());
+                st.mcp.sync();
+            }
             // In-app updates come from GitHub Releases (see plugins.updater in tauri.conf.json).
             #[cfg(desktop)]
             {
@@ -374,7 +501,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .manage(App { agent: Arc::new(AgentState::default()), http, terms: Default::default() })
+        .manage(App { agent: Arc::new(AgentState::default()), mcp: mcp::Manager::new(http.clone()), http, terms: Default::default() })
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
@@ -389,6 +516,21 @@ pub fn run() {
             load_session,
             delete_session,
             rename_session,
+            set_session_group,
+            projects_list,
+            project_create,
+            project_update,
+            project_delete,
+            skill_import_zip,
+            mcp_status,
+            mcp_config,
+            mcp_save_config,
+            mcp_put_server,
+            mcp_remove_server,
+            mcp_set_enabled,
+            mcp_restart,
+            mcp_import_apps,
+            mcp_logs,
             set_messages,
             set_session_project,
             read_attachment,
@@ -410,6 +552,12 @@ pub fn run() {
             pty_resize,
             pty_kill,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Casylum");
+        .build(tauri::generate_context!())
+        .expect("error while running Casylum")
+        .run(|app, ev| {
+            // Stop MCP server processes when the app quits.
+            if let tauri::RunEvent::Exit = ev {
+                app.state::<App>().mcp.shutdown_all();
+            }
+        });
 }

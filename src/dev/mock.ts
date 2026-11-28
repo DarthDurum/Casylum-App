@@ -34,6 +34,7 @@ let messages: Message[] = [
         { text: "Add a regression test", description: "Cover multiple quantities and a non-zero tax rate in src/cart/total.test.ts.", status: "in_progress" },
         { text: "Run the test suite", description: "Run vitest on src/cart and fix anything that fails.", status: "pending" },
       ] } },
+      { type: "tool_use", id: "tm", name: "mcp__github__search_issues", input: { query: "cart total quantity is:open" } },
       { type: "tool_use", id: "t1", name: "search", input: { pattern: "function total", glob: "**/*.ts" } },
       { type: "tool_use", id: "t2", name: "read_file", input: { path: "src/cart/total.ts" } },
       { type: "tool_use", id: "t3", name: "edit_file", input: { path: "src/cart/total.ts", old_string: before, new_string: after } },
@@ -43,6 +44,7 @@ let messages: Message[] = [
     role: "user",
     content: [
       { type: "tool_result", tool_use_id: "t0", content: "Plan updated.", is_error: false },
+      { type: "tool_result", tool_use_id: "tm", content: "#142 Cart total ignores quantity (open)", is_error: false, meta: { kind: "mcp", server: "github", tool: "search_issues" } },
       { type: "tool_result", tool_use_id: "t1", content: "1 matches in 1 files\nsrc/cart/total.ts:1: export function total(items: Item[]) {", is_error: false },
       { type: "tool_result", tool_use_id: "t2", content: before, is_error: false },
       { type: "tool_result", tool_use_id: "t3", content: "Edited src/cart/total.ts (1 replacement).", is_error: false, meta: { kind: "diff", path: "src/cart/total.ts", before, after, created: false, added: 4, removed: 5 } },
@@ -111,8 +113,8 @@ export function installMock() {
           return [];
         case "list_sessions":
           return [
-            { id: "s1", project: settings.recent_projects[0], title: "Fix cart total with quantity and tax", updated_at: Date.now() - 60_000, model: "claude-opus-5-5" },
-            { id: "s2", project: settings.recent_projects[0], title: "Explain the checkout flow", updated_at: Date.now() - 3_600_000 * 5, model: "claude-sonnet-5-5" },
+            { id: "s1", project: settings.recent_projects[0], title: "Fix cart total with quantity and tax", updated_at: Date.now() - 60_000, model: "claude-opus-5-5", project_id: "p1" },
+            { id: "s2", project: settings.recent_projects[0], title: "Explain the checkout flow", updated_at: Date.now() - 3_600_000 * 5, model: "claude-sonnet-5-5", project_id: "p1" },
             { id: "s3", project: settings.recent_projects[0], title: "Add dark mode to settings page", updated_at: Date.now() - 86_400_000 * 2, model: "gpt-5" },
           ];
         case "load_session":
@@ -122,6 +124,26 @@ export function installMock() {
             { name: "release-notes", description: "Write release notes from merged changes", scope: "project", dir: "/x/.casylum/skills/release-notes", enabled: true },
             { name: "react-review", description: "Review React components for accessibility and performance", scope: "global", dir: "/home/.casylum/skills/react-review", enabled: true },
           ];
+        case "projects_list":
+          return [
+            { id: "p1", name: "Shopfront", folder: "/Users/you/code/shopfront", instructions: "TypeScript + React. Keep components small.", created_at: 0 },
+            { id: "p2", name: "Research notes", folder: "", instructions: "", created_at: 0 },
+          ];
+        case "mcp_status":
+          return [
+            { name: "github", transport: "http", target: "https://api.githubcopilot.com/mcp/", status: "connected", error: null, server_name: "github", server_version: "1.0", auto_approve_all: false, tools: [
+              { name: "search_issues", description: "Search issues and pull requests across GitHub repositories.", read_only: true },
+              { name: "create_issue", description: "Create a new issue in a repository.", read_only: false },
+              { name: "get_file_contents", description: "Get the contents of a file or directory from a repository.", read_only: true },
+            ] },
+            { name: "filesystem", transport: "stdio", target: "npx -y @modelcontextprotocol/server-filesystem /Users/you/notes", status: "connected", error: null, server_name: null, server_version: null, auto_approve_all: true, tools: [{ name: "read_text_file", description: "Read a file", read_only: true }] },
+            { name: "postgres", transport: "stdio", target: "uvx mcp-server-postgres postgresql://localhost/shop", status: "error", error: "Couldn't start \"uvx\": No such file or directory. Check that it is installed and on your PATH.", server_name: null, server_version: null, auto_approve_all: false, tools: [] },
+            { name: "browser", transport: "sse", target: "http://localhost:8931/sse", status: "disabled", error: null, server_name: null, server_version: null, auto_approve_all: false, tools: [] },
+          ];
+        case "mcp_config":
+          return { path: "~/.config/casylum/mcp.json", text: '{\n  "mcpServers": {\n    "github": { "type": "http", "url": "https://api.githubcopilot.com/mcp/" }\n  }\n}\n' };
+        case "mcp_logs":
+          return ["$ uvx mcp-server-postgres postgresql://localhost/shop", "Couldn't start"];
         case "skills_paths":
           return { global: "~/.casylum/skills", project: "shopfront/.casylum/skills" };
         case "skill_read":

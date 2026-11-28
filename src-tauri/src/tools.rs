@@ -14,8 +14,8 @@ const MAX_META: usize = 200_000;
 pub fn specs() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
-            name: "read_file",
-            description: "Read a text file from the project. Returns numbered lines. Use offset/limit for large files.",
+            name: "read_file".into(),
+            description: "Read a text file from the project. Returns numbered lines. Use offset/limit for large files.".into(),
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "Path relative to the project root"},
                 "offset": {"type": "integer", "description": "1-based line to start at"},
@@ -23,16 +23,16 @@ pub fn specs() -> Vec<ToolSpec> {
             }, "required": ["path"]}),
         },
         ToolSpec {
-            name: "list_dir",
-            description: "List files and folders in a project directory (respects .gitignore).",
+            name: "list_dir".into(),
+            description: "List files and folders in a project directory (respects .gitignore).".into(),
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string", "description": "Directory relative to the project root; defaults to the root"},
                 "depth": {"type": "integer", "description": "How many levels deep to list (default 1, max 4)"}
             }}),
         },
         ToolSpec {
-            name: "search",
-            description: "Search file contents with a regular expression (ripgrep-style, respects .gitignore). Returns path:line: text matches.",
+            name: "search".into(),
+            description: "Search file contents with a regular expression (ripgrep-style, respects .gitignore). Returns path:line: text matches.".into(),
             schema: json!({"type": "object", "properties": {
                 "pattern": {"type": "string", "description": "Regular expression"},
                 "path": {"type": "string", "description": "Directory to search, relative to root"},
@@ -40,16 +40,16 @@ pub fn specs() -> Vec<ToolSpec> {
             }, "required": ["pattern"]}),
         },
         ToolSpec {
-            name: "write_file",
-            description: "Create a file or overwrite it entirely. Prefer edit_file for changes to existing files.",
+            name: "write_file".into(),
+            description: "Create a file or overwrite it entirely. Prefer edit_file for changes to existing files.".into(),
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string"},
                 "content": {"type": "string"}
             }, "required": ["path", "content"]}),
         },
         ToolSpec {
-            name: "edit_file",
-            description: "Replace an exact string in a file. old_string must match exactly once unless replace_all is true. Read the file first.",
+            name: "edit_file".into(),
+            description: "Replace an exact string in a file. old_string must match exactly once unless replace_all is true. Read the file first.".into(),
             schema: json!({"type": "object", "properties": {
                 "path": {"type": "string"},
                 "old_string": {"type": "string"},
@@ -58,16 +58,16 @@ pub fn specs() -> Vec<ToolSpec> {
             }, "required": ["path", "old_string", "new_string"]}),
         },
         ToolSpec {
-            name: "run_command",
-            description: "Run a shell command in the project root and return its output. Use for builds, tests, git and package managers. Not for interactive programs.",
+            name: "run_command".into(),
+            description: "Run a shell command in the project root and return its output. Use for builds, tests, git and package managers. Not for interactive programs.".into(),
             schema: json!({"type": "object", "properties": {
                 "command": {"type": "string"},
                 "timeout_secs": {"type": "integer", "description": "Default 120, max 600"}
             }, "required": ["command"]}),
         },
         ToolSpec {
-            name: "update_plan",
-            description: "Show the user your plan as a checklist. Call at the start of multi-step work and whenever a step changes status. Send the full list each time. Give each step a short title and, where it helps, a one-sentence description of what the step involves (which files, what you'll check or change).",
+            name: "update_plan".into(),
+            description: "Show the user your plan as a checklist. Call at the start of multi-step work and whenever a step changes status. Send the full list each time. Give each step a short title and, where it helps, a one-sentence description of what the step involves (which files, what you'll check or change).".into(),
             schema: json!({"type": "object", "properties": {
                 "items": {"type": "array", "items": {"type": "object", "properties": {
                     "text": {"type": "string", "description": "Short step title, a few words"},
@@ -77,8 +77,8 @@ pub fn specs() -> Vec<ToolSpec> {
             }, "required": ["items"]}),
         },
         ToolSpec {
-            name: "use_skill",
-            description: "Load the full instructions of one of the available skills listed in the system prompt. Call this before doing a task a skill covers.",
+            name: "use_skill".into(),
+            description: "Load the full instructions of one of the available skills listed in the system prompt. Call this before doing a task a skill covers.".into(),
             schema: json!({"type": "object", "properties": {
                 "name": {"type": "string"}
             }, "required": ["name"]}),
@@ -108,8 +108,11 @@ pub struct ToolOutput {
 }
 
 impl ToolOutput {
-    fn ok(content: impl Into<String>) -> Self {
+    pub fn ok(content: impl Into<String>) -> Self {
         Self { content: content.into(), is_error: false, meta: None }
+    }
+    pub fn err(content: impl Into<String>) -> Self {
+        Self { content: content.into(), is_error: true, meta: None }
     }
 }
 

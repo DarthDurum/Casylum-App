@@ -2,6 +2,7 @@
 //! when the permission mode says so), feed results back, and repeat until the
 //! model is done. Conversations persist to disk as JSON.
 
+use crate::mcp::Manager;
 use crate::providers::{self, TurnRequest};
 use crate::settings::{self, PermissionMode};
 use crate::tools::{self, Checkpoint, Risk, ToolCtx};
@@ -43,6 +44,9 @@ pub struct Session {
     pub runs: Vec<Run>,
     #[serde(default)]
     pub usage: Usage,
+    /// The project this chat belongs to, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +56,7 @@ pub struct SessionSummary {
     pub title: String,
     pub updated_at: i64,
     pub model: String,
+    pub project_id: Option<String>,
 }
 
 fn sessions_dir() -> PathBuf {
@@ -100,10 +105,12 @@ pub fn list_sessions(project: Option<&str>) -> Vec<SessionSummary> {
             title: String,
             updated_at: i64,
             model: String,
+            #[serde(default)]
+            project_id: Option<String>,
         }
         if let Ok(h) = serde_json::from_str::<Head>(&text) {
             if project.map_or(true, |p| p == h.project) {
-                out.push(SessionSummary { id: h.id, project: h.project, title: h.title, updated_at: h.updated_at, model: h.model });
+                out.push(SessionSummary { id: h.id, project: h.project, title: h.title, updated_at: h.updated_at, model: h.model, project_id: h.project_id });
             }
         }
     }
@@ -160,7 +167,7 @@ fn title_from(text: &str) -> String {
     }
 }
 
-pub fn new_session(project: &str, provider: &str, model: &str) -> Session {
+pub fn new_session(project: &str, provider: &str, model: &str, project_id: Option<String>) -> Session {
     Session {
         id: uuid::Uuid::new_v4().to_string(),
         project: project.to_string(),
@@ -172,6 +179,7 @@ pub fn new_session(project: &str, provider: &str, model: &str) -> Session {
         messages: vec![],
         runs: vec![],
         usage: Usage::default(),
+        project_id,
     }
 }
 
@@ -272,7 +280,7 @@ pub struct SendArgs {
     pub model: String,
 }
 
-pub async fn run_agent(app: AppHandle, state: Arc<AgentState>, http: reqwest::Client, args: SendArgs) {
+pub async fn run_agent(app: AppHandle, state: Arc<AgentState>, http: reqwest::Client, mcp: Arc<Manager>, args: SendArgs) {
     let sid = args.session_id.clone();
     let cancel = CancellationToken::new();
     {
@@ -286,7 +294,7 @@ pub async fn run_agent(app: AppHandle, state: Arc<AgentState>, http: reqwest::Cl
     let run_id = uuid::Uuid::new_v4().to_string();
     emit(&app, AgentEvent::Started { session_id: sid.clone(), run_id: run_id.clone() });
 
-    let result = drive(&app, &state, &http, &args, &run_id, &cancel).await;
+    let result = drive(&app, &state, &http, &mcp, &args, &run_id, &cancel).await;
     let (files_changed, err) = match result {
         Ok(n) => (n, None),
         Err(e) => (0, Some(e.to_string())),
@@ -302,6 +310,7 @@ async fn drive(
     app: &AppHandle,
     state: &Arc<AgentState>,
     http: &reqwest::Client,
+    mcp: &Arc<Manager>,
     args: &SendArgs,
     run_id: &str,
     cancel: &CancellationToken,
@@ -347,7 +356,11 @@ async fn drive(
     save_session(&session)?;
     emit(app, AgentEvent::Message { session_id: sid.clone(), message: session.messages.last().unwrap().clone() });
 
-    let specs = if root.is_some() { tools::specs() } else { vec![] };
+    let group = session.project_id.as_deref().and_then(crate::projects::get);
+    tokio::select! {
+        _ = mcp.wait_ready(std::time::Duration::from_secs(15)) => {}
+        _ = cancel.cancelled() => {}
+    }
     let mut checkpoint: Checkpoint = HashMap::new();
     let mut always: HashSet<String> = HashSet::new();
 
@@ -370,11 +383,19 @@ async fn drive(
         }
         let settings = settings::load();
         let base_url = crate::providers::base_url(&args.provider, &settings);
-        let system = match &root {
+        let mut system = match &root {
             Some(home) if whole_pc => pc_prompt(home),
             Some(root) => system_prompt(root, &settings.disabled_skills),
             None => chat_prompt(),
         };
+        if let Some(g) = &group {
+            system.push_str(&crate::projects::prompt_section(g));
+        }
+        system.push_str(&mcp.prompt_section());
+        // MCP tools work with or without a folder. Re-read each step so a
+        // server that connects mid-run is picked up.
+        let mut specs = if root.is_some() { tools::specs() } else { vec![] };
+        specs.extend(mcp.specs());
         let req = TurnRequest {
             provider: &args.provider,
             model: &args.model,
@@ -445,7 +466,13 @@ async fn drive(
                 continue;
             }
             let mode = settings::load().permission_mode;
-            let needs_ok = match (tools::risk(&name), mode) {
+            let is_mcp = crate::mcp::is_mcp_tool(&name);
+            let risk = if is_mcp {
+                if mcp.is_safe(&name) { Risk::Read } else { Risk::Command }
+            } else {
+                tools::risk(&name)
+            };
+            let needs_ok = match (risk, mode) {
                 (Risk::Read, _) => false,
                 (_, PermissionMode::FullAuto) => false,
                 (Risk::Edit, PermissionMode::AutoEdit) => false,
@@ -472,6 +499,17 @@ async fn drive(
                     }
                     Decision::Allow => {}
                 }
+            }
+            if is_mcp {
+                emit(app, AgentEvent::ToolRunning { session_id: sid.clone(), tool_use_id: id.clone() });
+                let out = tokio::select! {
+                    o = mcp.call(&name, &input) => o,
+                    _ = cancel.cancelled() => tools::ToolOutput::err("Stopped by the user."),
+                };
+                let block = Block::ToolResult { tool_use_id: id, content: out.content, is_error: out.is_error, meta: out.meta };
+                emit(app, AgentEvent::ToolResult { session_id: sid.clone(), block: block.clone() });
+                results.push(block);
+                continue;
             }
             let Some(root) = &root else {
                 results.push(Block::ToolResult { tool_use_id: id, content: NO_FOLDER.into(), is_error: true, meta: None });

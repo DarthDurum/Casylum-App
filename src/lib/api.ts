@@ -68,6 +68,43 @@ export interface SessionSummary {
   title: string;
   updated_at: number;
   model: string;
+  /** The project this chat belongs to. */
+  project_id?: string | null;
+}
+
+/** A group of chats with an optional folder and instructions. */
+export interface Project {
+  id: string;
+  name: string;
+  folder: string;
+  instructions: string;
+  created_at: number;
+}
+
+export interface ImportedSkill {
+  name: string;
+  dir: string;
+  replaced: boolean;
+}
+
+export interface McpTool {
+  name: string;
+  description: string;
+  read_only: boolean;
+}
+
+export type McpState = "disabled" | "connecting" | "connected" | "error";
+
+export interface McpServer {
+  name: string;
+  transport: "stdio" | "http" | "sse";
+  target: string;
+  status: McpState;
+  error: string | null;
+  tools: McpTool[];
+  server_name: string | null;
+  server_version: string | null;
+  auto_approve_all: boolean;
 }
 
 export interface RunInfo {
@@ -125,8 +162,15 @@ export const api = {
   removeRecentProject: (path: string) => invoke<Settings>("remove_recent_project", { path }),
 
   listSessions: (project?: string) => invoke<SessionSummary[]>("list_sessions", { project }),
-  createSession: (project: string, provider: string, model: string) =>
-    invoke<Session>("create_session", { project, provider, model }),
+  createSession: (project: string, provider: string, model: string, projectId?: string | null) =>
+    invoke<Session>("create_session", { project, provider, model, projectId: projectId ?? null }),
+  setSessionGroup: (id: string, projectId: string | null) => invoke<Session>("set_session_group", { id, projectId }),
+
+  projectsList: () => invoke<Project[]>("projects_list"),
+  projectCreate: (name: string, folder: string, instructions: string) => invoke<Project>("project_create", { name, folder, instructions }),
+  projectUpdate: (id: string, name: string, folder: string, instructions: string) =>
+    invoke<Project>("project_update", { id, name, folder, instructions }),
+  projectDelete: (id: string) => invoke<void>("project_delete", { id }),
   loadSession: (id: string) => invoke<Session>("load_session", { id }),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
   setSessionProject: (id: string, project: string) => invoke<void>("set_session_project", { id, project }),
@@ -151,6 +195,18 @@ export const api = {
     invoke<string>("skill_save", { scope, project, name, content }),
   skillDelete: (dir: string) => invoke<void>("skill_delete", { dir }),
   skillToggle: (scope: string, name: string, enabled: boolean) => invoke<void>("skill_toggle", { scope, name, enabled }),
+  skillImportZip: (path: string, scope: "global" | "project", project?: string) =>
+    invoke<ImportedSkill[]>("skill_import_zip", { path, scope, project }),
+
+  mcpStatus: () => invoke<McpServer[]>("mcp_status"),
+  mcpConfig: () => invoke<{ path: string; text: string }>("mcp_config"),
+  mcpSaveConfig: (text: string) => invoke<void>("mcp_save_config", { text }),
+  mcpPutServer: (name: string, server: Record<string, unknown>, previous?: string) => invoke<void>("mcp_put_server", { name, server, previous: previous ?? null }),
+  mcpRemoveServer: (name: string) => invoke<void>("mcp_remove_server", { name }),
+  mcpSetEnabled: (name: string, enabled: boolean) => invoke<void>("mcp_set_enabled", { name, enabled }),
+  mcpImportApps: () => invoke<{ added: string[]; skipped: string[]; sources: string[] }>("mcp_import_apps"),
+  mcpRestart: (name: string) => invoke<void>("mcp_restart", { name }),
+  mcpLogs: (name: string) => invoke<string[]>("mcp_logs", { name }),
   skillsPaths: (project?: string) => invoke<{ global: string; project: string | null }>("skills_paths", { project }),
 
   ptySpawn: (cwd: string, cols: number, rows: number) => invoke<string>("pty_spawn", { cwd, cols, rows }),

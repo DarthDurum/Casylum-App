@@ -8,7 +8,7 @@ import { Rail } from "./components/Rail";
 import { Chat } from "./components/Chat";
 import { ContextPanel } from "./components/ContextPanel";
 import { SettingsModal } from "./components/Settings";
-import { SkillsModal } from "./components/Skills";
+import { ProjectModal } from "./components/ProjectModal";
 import { Palette } from "./components/Palette";
 import { Onboarding } from "./components/Onboarding";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -27,7 +27,12 @@ export default function App() {
     const st = useStore.getState();
     void st.init();
     const un = listen<AgentEvent>("agent", (e) => useStore.getState().handleEvent(e.payload));
-    return () => void un.then((f) => f());
+    // MCP servers connecting, failing or changing their tools.
+    const unMcp = listen("mcp", () => void useStore.getState().refreshMcp());
+    return () => {
+      void un.then((f) => f());
+      void unMcp.then((f) => f());
+    };
   }, []);
 
   useEffect(() => {
@@ -44,7 +49,7 @@ export default function App() {
         void st.newChat();
       } else if (k === ",") {
         e.preventDefault();
-        st.setModal("settings");
+        st.openSettings(st.settingsTab);
       } else if (k === "\\") {
         e.preventDefault();
         st.togglePanel();
@@ -105,7 +110,7 @@ export default function App() {
       <Chat />
       {panelOpen && <ContextPanel />}
       {modal === "settings" && <SettingsModal />}
-      {modal === "skills" && <SkillsModal />}
+      {modal === "project" && <ProjectModal />}
       {modal === "palette" && <Palette />}
       <WindowControls />
       <UpdateBanner />

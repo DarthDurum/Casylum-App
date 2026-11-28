@@ -6,7 +6,7 @@ Casylum's interface is a work tool. People spend long stretches in it reading wh
 
 Three flat columns, separated by 1px lines, with no floating cards:
 
-- **Sidebar** (260px, a shade darker than the chat): wordmark, project switcher, New chat, Commands, the chat list, and Skills, Settings and theme at the bottom.
+- **Sidebar** (260px, a shade darker than the chat): wordmark, folder switcher, New chat, Commands, Projects (each folds open to its chats), the other chats, and Skills, MCP, Settings and theme at the bottom.
 - **Chat**: a 52px header (project / chat title, token usage, panel toggle) above one centred column, at most 768px wide.
   - Your messages sit right-aligned in a tinted bubble. The agent's replies are plain text with no bubble.
   - Tool steps are a flat list of rows: icon, verb, target, then status. When a step expands, its output hangs under a hairline, like a transcript.

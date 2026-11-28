@@ -16,6 +16,7 @@ export function Palette() {
   const providers = useStore((s) => s.providers);
   const models = useStore((s) => s.models);
   const sessions = useStore((s) => s.sessions);
+  const projects = useStore((s) => s.projects);
   const [q, setQ] = useState("");
   const [i, setI] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -33,8 +34,10 @@ export function Palette() {
           if (typeof d === "string") await st().openProject(d);
         },
       },
-      { id: "settings", label: "Settings: providers and keys", hint: "Ctrl ,", run: () => st().setModal("settings") },
-      { id: "skills", label: "Skills: manage", run: () => st().setModal("skills") },
+      { id: "settings", label: "Settings: providers and keys", hint: "Ctrl ,", run: () => st().openSettings("providers") },
+      { id: "skills", label: "Skills: manage", run: () => st().openSettings("skills") },
+      { id: "mcp", label: "MCP servers: manage", run: () => st().openSettings("mcp") },
+      { id: "new-project", label: "New project…", run: () => st().editProject(null) },
       { id: "theme", label: "Toggle light / dark theme", run: () => void st().updateSettings({ theme: st().settings?.theme === "light" ? "dark" : "light" }) },
       { id: "panel", label: "Toggle side panel", hint: "Ctrl \\", run: () => st().togglePanel() },
       { id: "plan", label: "Show plan", run: () => st().setPanel("plan") },
@@ -51,9 +54,10 @@ export function Palette() {
           const all = models[p.id]?.models;
           base.push({ id: `m-${p.id}-${m.id}`, label: `Model: ${modelLabel(m.id, all)}`, hint: `${p.name} · ${m.id}`, run: () => void st().updateSettings({ provider: p.id, model: m.id }) });
         }
+    for (const p of projects) base.push({ id: `p-${p.id}`, label: `New chat in ${p.name}`, hint: "Project", run: () => void st().newChat(p.id) });
     for (const s of sessions.slice(0, 30)) base.push({ id: `s-${s.id}`, label: `Chat: ${s.title}`, run: () => void st().selectSession(s.id) });
     return base;
-  }, [providers, sessions, models]);
+  }, [providers, sessions, models, projects]);
 
   const filtered = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
