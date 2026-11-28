@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ArrowUp, Check, ChevronDown, Paperclip, RefreshCw, Shield, ShieldCheck, ShieldOff, Square } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -192,6 +192,25 @@ function ModelMenu({ close }: { close: () => void }) {
   const [query, setQuery] = useState("");
   const usable = providers.filter((p) => p.has_key || !p.needs_key);
   const q = query.trim().toLowerCase();
+  // Providers picked in the dot rail; none picked shows them all.
+  const [picked, setPicked] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("casylum.modelFilter") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  const active = picked.filter((id) => usable.some((p) => p.id === id));
+  const togglePick = (id: string) => {
+    const next = active.includes(id) ? active.filter((x) => x !== id) : [...active, id];
+    setPicked(next);
+    try {
+      localStorage.setItem("casylum.modelFilter", JSON.stringify(next));
+    } catch {
+      /* private mode */
+    }
+  };
+  const visible = active.length ? usable.filter((p) => active.includes(p.id)) : usable;
 
   useEffect(() => {
     for (const p of usable) if (!models[p.id] && !loading[p.id]) void loadModels(p.id);
@@ -205,13 +224,42 @@ function ModelMenu({ close }: { close: () => void }) {
 
   return (
     <div className="menu up wide end model-menu">
+      {usable.length > 1 && (
+        <div className="prov-rail" aria-label="Filter by provider">
+          <div className="prov-rail-inner">
+            <button className={`prov-dot all ${active.length === 0 ? "on" : ""}`} title="All providers" onClick={() => setPicked([])}>
+              <span className="dot" />
+              <span className="prov-name">All providers</span>
+            </button>
+            {usable.map((p) => {
+              const on = active.includes(p.id);
+              const count = models[p.id]?.models.length;
+              return (
+                <button
+                  key={p.id}
+                  className={`prov-dot ${on ? "on" : ""}`}
+                  style={{ "--dot": providerColor(p.id) } as CSSProperties}
+                  title={p.name}
+                  aria-pressed={on}
+                  onClick={() => togglePick(p.id)}
+                >
+                  <span className="dot" />
+                  <span className="prov-name">{p.name}</span>
+                  {count !== undefined && <span className="prov-count">{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div className="model-list">
       <form
         className="menu-search"
         onSubmit={(e) => {
           e.preventDefault();
           if (!query.trim()) return;
           // Send the model to the provider that lists it, not whichever one is active.
-          const lists = usable.map((p) => ({ provider: p.id, models: models[p.id]?.models ?? p.models.map((id) => ({ id })) }));
+          const lists = visible.map((p) => ({ provider: p.id, models: models[p.id]?.models ?? p.models.map((id) => ({ id })) }));
           const r = resolveTypedModel(query, lists, settings.provider);
           pick(r.provider, r.model);
         }}
@@ -219,7 +267,7 @@ function ModelMenu({ close }: { close: () => void }) {
         <input autoFocus placeholder="Search models, or type a model id…" value={query} onChange={(e) => setQuery(e.target.value)} />
       </form>
       {usable.length === 0 && <div className="menu-note">Add an API key to choose a model.</div>}
-      {usable.map((p) => {
+      {visible.map((p) => {
         const list = models[p.id];
         const all: ModelInfo[] = list?.models ?? p.models.map((id) => ({ id }));
         const shown = q ? all.filter((m) => m.id.toLowerCase().includes(q) || modelLabel(m.id, all).toLowerCase().includes(q)) : all;
@@ -229,6 +277,7 @@ function ModelMenu({ close }: { close: () => void }) {
         return (
           <div key={p.id} className="menu-group">
             <div className="menu-label">
+              <span className="dot" style={{ background: providerColor(p.id) }} />
               {p.name}
               <span className="spacer" />
               <button
@@ -240,8 +289,9 @@ function ModelMenu({ close }: { close: () => void }) {
               </button>
             </div>
             {list?.error && list.source !== "live" && (
-              <div className="menu-hint" title={list.error}>
-                {list.source === "cache" ? "Showing the last list we fetched." : "Couldn't reach the provider. Showing defaults."}
+              <div className="menu-hint warn" title={list.error}>
+                {list.source === "cache" ? "Showing the last list we fetched." : "Couldn't load the model list. Showing defaults."}
+                <span className="menu-error">{list.error}</span>
               </div>
             )}
             {!list && loading[p.id] && <div className="menu-hint">Loading models…</div>}
@@ -266,6 +316,27 @@ function ModelMenu({ close }: { close: () => void }) {
       >
         Manage providers and keys…
       </button>
+      </div>
     </div>
   );
+}
+
+/** A stable color per provider for the dot rail. */
+function providerColor(id: string): string {
+  const fixed: Record<string, string> = {
+    anthropic: "#d97757",
+    openai: "#10a37f",
+    gemini: "#4285f4",
+    openrouter: "#8b5cf6",
+    groq: "#f55036",
+    abacus: "#22b8cf",
+    mistral: "#fa520f",
+    deepseek: "#4d6bfe",
+    xai: "#9ca3af",
+    ollama: "#e5e7eb",
+  };
+  if (fixed[id]) return fixed[id];
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 65% 58%)`;
 }
