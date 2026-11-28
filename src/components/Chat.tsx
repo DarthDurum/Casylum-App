@@ -79,6 +79,7 @@ function Conversation() {
   const project = useStore((s) => s.project);
   const send = useStore((s) => s.send);
   const revert = useStore((s) => s.revert);
+  const fullAuto = useStore((s) => s.settings?.permission_mode === "full_auto");
   const scroller = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const ts = useMemo(() => turns(chat.messages), [chat.messages]);
@@ -110,8 +111,10 @@ function Conversation() {
         <h2>What are we building?</h2>
         {project ? (
           <p>Describe a task. Casylum reads your code, plans, makes edits you can review, and runs commands.</p>
+        ) : fullAuto ? (
+          <p>Full auto is on and this chat has no folder, so Casylum can read, change and run anything on your PC without asking.</p>
         ) : (
-          <p>Ask anything. To let Casylum read and edit your code, open a folder.</p>
+          <p>Ask anything. To let Casylum read and edit your code, choose a folder for this chat, or switch to Full auto to give it your whole PC.</p>
         )}
         {!project && <OpenFolderButton />}
         <div className="suggestions">

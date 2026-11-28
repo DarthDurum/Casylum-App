@@ -133,6 +133,17 @@ fn delete_session(id: String) -> Res<()> {
     agent::delete_session(&id).map_err(e)
 }
 
+/// Each chat has its own folder; changing it never touches other chats.
+#[tauri::command]
+fn set_session_project(st: State<'_, App>, id: String, project: String) -> Res<()> {
+    if st.agent.running.lock().contains_key(&id) {
+        return Err("Wait for this chat to finish before changing its folder.".into());
+    }
+    let mut s = agent::load_session(&id).map_err(e)?;
+    s.project = project;
+    agent::save_session(&s).map_err(e)
+}
+
 #[tauri::command]
 fn rename_session(id: String, title: String) -> Res<()> {
     let mut s = agent::load_session(&id).map_err(e)?;
@@ -383,6 +394,7 @@ pub fn run() {
             delete_session,
             rename_session,
             set_messages,
+            set_session_project,
             read_attachment,
             agent_send,
             agent_stop,

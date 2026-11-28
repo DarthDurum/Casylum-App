@@ -61,7 +61,7 @@ interface Store {
   /** Live model lists by provider id. */
   models: Record<string, ModelList>;
   modelsLoading: Record<string, boolean>;
-  /** null means chats without a folder. */
+  /** The current chat's folder (or the folder a new chat will start in). null means no folder. */
   project: string | null;
   sessions: SessionSummary[];
   sessionId: string | null;
@@ -75,8 +75,10 @@ interface Store {
   init(): Promise<void>;
   refreshProviders(): Promise<void>;
   loadModels(provider: string, refresh?: boolean): Promise<ModelList | null>;
+  /** Clear the current chat's folder. */
   leaveProject(): Promise<void>;
   updateSettings(patch: Partial<Settings>): Promise<void>;
+  /** Set the current chat's folder. Other chats keep theirs. */
   openProject(path: string): Promise<void>;
   closeProject(path: string): Promise<void>;
   refreshSessions(): Promise<void>;
@@ -125,6 +127,22 @@ export const useStore = create<Store>((set, get) => {
     patchChat(id, (c) => ({ messages: sess.messages, usage: sess.usage, runs: sess.runs, running: c.running }));
   };
 
+  /** Change the current chat's folder ("" for none). With no chat open yet,
+   *  it becomes the folder the next new chat starts in. */
+  const setFolder = async (path: string) => {
+    const sid = get().sessionId;
+    if (sid) {
+      try {
+        await api.setSessionProject(sid, path);
+      } catch (e) {
+        get().notify(String(e));
+        return;
+      }
+      set((s) => ({ sessions: s.sessions.map((x) => (x.id === sid ? { ...x, project: path } : x)) }));
+    }
+    set({ project: path || null });
+  };
+
   /** Save a chat with one turn changed. Returns false if nothing was saved. */
   const rewrite = async (start: number, change: (messages: Message[], t: Turn) => Message[]) => {
     const sid = get().sessionId;
@@ -162,8 +180,7 @@ export const useStore = create<Store>((set, get) => {
     async init() {
       const [settings, providers, running] = await Promise.all([api.getSettings(), api.listProviders(), api.running()]);
       document.documentElement.dataset.theme = settings.theme;
-      const project = settings.recent_projects[0] ?? null;
-      set({ settings, providers, project, ready: true });
+      set({ settings, providers, project: null, ready: true });
       for (const sid of running) patchChat(sid, () => ({ running: true }));
       loadUsableModels();
       await get().refreshSessions();
@@ -191,10 +208,7 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async leaveProject() {
-      set({ project: null, sessionId: null });
-      await get().refreshSessions();
-      const first = get().sessions[0];
-      if (first) await get().selectSession(first.id);
+      await setFolder("");
     },
 
     async updateSettings(patch) {
@@ -207,23 +221,18 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async openProject(path) {
-      const settings = await api.addRecentProject(path);
-      set({ settings, project: path, sessionId: null });
-      await get().refreshSessions();
-      const first = get().sessions[0];
-      if (first) await get().selectSession(first.id);
+      set({ settings: await api.addRecentProject(path) });
+      await setFolder(path);
     },
 
     async closeProject(path) {
-      const settings = await api.removeRecentProject(path);
-      const project = get().project === path ? settings.recent_projects[0] ?? null : get().project;
-      set({ settings, project, sessionId: get().project === path ? null : get().sessionId });
-      await get().refreshSessions();
+      // Only forgets it in the recent list; chats keep their folders.
+      set({ settings: await api.removeRecentProject(path) });
     },
 
     async refreshSessions() {
-      // Chats without a folder are stored with an empty project.
-      set({ sessions: await api.listSessions(get().project ?? "") });
+      // Every chat, whatever its folder.
+      set({ sessions: await api.listSessions() });
     },
 
     async newChat() {
@@ -237,7 +246,8 @@ export const useStore = create<Store>((set, get) => {
     },
 
     async selectSession(id) {
-      set({ sessionId: id });
+      const summary = get().sessions.find((s) => s.id === id);
+      set({ sessionId: id, project: summary ? summary.project || null : get().project });
       await loadChat(id);
     },
 

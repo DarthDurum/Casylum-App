@@ -10,7 +10,7 @@ import { useChat, useStore } from "../store";
 const MODES: Record<PermissionMode, { label: string; hint: string; icon: any }> = {
   ask: { label: "Ask first", hint: "Approve every edit and command", icon: Shield },
   auto_edit: { label: "Auto-edit", hint: "Edits apply, commands ask", icon: ShieldCheck },
-  full_auto: { label: "Full auto", hint: "Never asks. Use with care", icon: ShieldOff },
+  full_auto: { label: "Full auto", hint: "Never asks. With no folder, it can use your whole PC", icon: ShieldOff },
 };
 
 export function Composer() {

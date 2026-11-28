@@ -215,9 +215,10 @@ fn chat_prompt() -> String {
     format!(
         "You are Casylum, an expert software engineer and helpful assistant.\n\
          OS: {os}\nDate: {date}\n\n\
-         No project folder is open in this chat, so you cannot read files, edit code or run commands. \
+         No folder is chosen for this chat, so you cannot read files, edit code or run commands. \
          Answer questions, explain, and write code in your replies. If the user asks for something that needs their files, \
-         tell them to open a folder with the folder button at the top of the sidebar (or Ctrl+O) and start a chat there.\n\
+         tell them to either choose a folder for this chat (folder button at the top of the sidebar, or Ctrl+O), \
+         or switch the mode under the message box to Full auto, which gives you their whole computer.\n\
          Be concise.\n"
     )
 }
@@ -241,6 +242,25 @@ fn wire_messages(messages: &[Message]) -> Vec<Message> {
         }
     }
     out
+}
+
+fn pc_prompt(home: &Path) -> String {
+    let os = std::env::consts::OS;
+    let date = chrono::Utc::now().format("%Y-%m-%d");
+    format!(
+        "You are Casylum, an expert software engineer working on the user's computer.\n\
+         OS: {os}\nDate: {date}\nHome folder: {home}\n\n\
+         The user turned on Full auto without choosing a folder, so you have access to their whole computer: \
+         you can read, write and edit files anywhere and run commands without asking. \
+         Relative paths and commands start in the home folder; use absolute paths (or ~/...) for anything else. \
+         To run a command somewhere else, cd there inside the command.\n\n\
+         How to work:\n\
+         - Explore before changing: use list_dir, search and read_file.\n\
+         - For multi-step tasks, call update_plan first and keep it current.\n\
+         - Be careful: never delete or overwrite files the user didn't ask you to touch, and avoid system folders unless asked.\n\
+         - Be concise. When done, summarize what changed and where.\n",
+        home = home.display()
+    )
 }
 
 pub struct SendArgs {
@@ -288,8 +308,16 @@ async fn drive(
 ) -> Result<usize> {
     let sid = &args.session_id;
     let mut session = load_session(sid)?;
-    // A chat without a folder is plain conversation: no file or shell tools.
-    let root = (!session.project.is_empty()).then(|| PathBuf::from(&session.project));
+    // A chat with a folder works inside it. Without one, Full auto gets the
+    // whole computer (starting in the home folder); other modes just chat.
+    let whole_pc = session.project.is_empty() && settings::load().permission_mode == PermissionMode::FullAuto;
+    let root = if !session.project.is_empty() {
+        Some(PathBuf::from(&session.project))
+    } else if whole_pc {
+        Some(dirs::home_dir().unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "C:\\" } else { "/" })))
+    } else {
+        None
+    };
     if let Some(root) = &root {
         if !root.is_dir() {
             return Err(anyhow!("Project folder not found: {}", root.display()));
@@ -347,6 +375,7 @@ async fn drive(
             _ => None,
         };
         let system = match &root {
+            Some(home) if whole_pc => pc_prompt(home),
             Some(root) => system_prompt(root, &settings.disabled_skills),
             None => chat_prompt(),
         };
@@ -453,7 +482,7 @@ async fn drive(
                 continue;
             };
             emit(app, AgentEvent::ToolRunning { session_id: sid.clone(), tool_use_id: id.clone() });
-            let mut ctx = ToolCtx { root, disabled_skills: &settings::load().disabled_skills, checkpoint: &mut checkpoint };
+            let mut ctx = ToolCtx { root, unrestricted: whole_pc, disabled_skills: &settings::load().disabled_skills, checkpoint: &mut checkpoint };
             let out = tools::run(&name, &input, &mut ctx).await;
             let block = Block::ToolResult { tool_use_id: id, content: out.content, is_error: out.is_error, meta: out.meta };
             emit(app, AgentEvent::ToolResult { session_id: sid.clone(), block: block.clone() });

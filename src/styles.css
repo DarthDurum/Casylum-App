@@ -420,6 +420,19 @@ kbd {
   font-size: 11px;
   color: var(--muted);
 }
+.session-folder {
+  max-width: 76px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--raised);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
 .session-del {
   display: none;
 }

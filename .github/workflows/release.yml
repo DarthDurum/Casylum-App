@@ -3,8 +3,9 @@ name: Release
 # Push a version tag (for example `git tag v0.2.0 && git push origin v0.2.0`),
 # or run this workflow from the Actions tab (it tags the version in
 # tauri.conf.json on the chosen branch), to build installers for Windows, macOS and Linux and publish them as a
-# GitHub Release. The app's built-in updater reads latest.json from the
-# newest release, so published releases reach existing installs.
+# GitHub Release. The release's latest.json is also copied to the fixed
+# "updater" release, which the app's built-in updater reads first, so a new
+# version reaches existing installs even if a release is marked pre-release.
 
 on:
   push:
@@ -154,6 +155,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ID: ${{ needs.draft.outputs.release_id }}
         run: |
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -F prerelease=false >/dev/null
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -f make_latest=true >/dev/null
-          echo "Published."
+          echo '{"draft": false, "prerelease": false, "make_latest": "true"}' |
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" --input - >/dev/null
+          state=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID" --jq '"draft=\(.draft) prerelease=\(.prerelease)"')
+          echo "Release is now: $state"
+          if [ "$state" != "draft=false prerelease=false" ]; then
+            echo "::warning::GitHub still lists this release as $state. The updater feed below still works."
+          fi
+
+      # Installed apps read latest.json from the "updater" release, which
+      # always holds the newest one. It never depends on which release
+      # GitHub calls "latest", so a pre-release flag can't hide an update.
+      - name: Update the in-app updater feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.draft.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if ! gh release download "$TAG" --repo "$REPO" --pattern latest.json --dir feed; then
+            echo "::warning::$TAG has no latest.json (is TAURI_SIGNING_PRIVATE_KEY set?), so the updater feed was not changed."
+            exit 0
+          fi
+          if ! gh release view updater --repo "$REPO" >/dev/null 2>&1; then
+            gh release create updater --repo "$REPO" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "Updater feed" --notes "Used by Casylum's in-app updater. Not a release: download Casylum from the latest release instead."
+          fi
+          gh release upload updater feed/latest.json --repo "$REPO" --clobber
+          echo "Updater feed now offers $TAG."

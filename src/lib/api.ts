@@ -120,6 +120,7 @@ export const api = {
     invoke<Session>("create_session", { project, provider, model }),
   loadSession: (id: string) => invoke<Session>("load_session", { id }),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
+  setSessionProject: (id: string, project: string) => invoke<void>("set_session_project", { id, project }),
   renameSession: (id: string, title: string) => invoke<void>("rename_session", { id, title }),
 
   setMessages: (id: string, messages: Message[]) => invoke<void>("set_messages", { id, messages }),
